@@ -56,7 +56,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:8080",
-    "https://app.jvdealhub.com"
+    "https://app.jvdealhub.com",
     "http://18.220.10.140"
 ]
 
