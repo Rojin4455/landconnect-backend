@@ -28,7 +28,7 @@ SECRET_KEY = config('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['app.jvdealhub.com', "localhost","127.0.0.1", "18.220.10.140","18.191.83.115"]
+ALLOWED_HOSTS = ['app.jvdealhub.com', "localhost","127.0.0.1", "18.220.10.140","18.191.83.115","3.144.148.57"]
 
 
 # Application definition
@@ -58,7 +58,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:8080",
     "https://app.jvdealhub.com",
     "http://18.220.10.140",
-    "http://18.191.83.115"
+    "http://18.191.83.115",
+    "http://3.144.148.57"
 
 ]
 
@@ -66,7 +67,8 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:8080",
     "https://app.jvdealhub.com",
     "http://18.220.10.140",
-    "http://18.191.83.115"
+    "http://18.191.83.115",
+    "http://3.144.148.57"
 ]
 
 MIDDLEWARE = [
