@@ -10,6 +10,7 @@ from .serializers import (
     PropertySubmissionUpdateSerializer, PropertyFileSerializer,ConversationMessageSerializer
 )
 from django.contrib.auth.models import User
+from decimal import Decimal
 
 
 
@@ -21,10 +22,12 @@ class PropertySubmissionCreateView(generics.CreateAPIView):
     parser_classes = [parsers.MultiPartParser, parsers.FormParser, parsers.JSONParser]
 
     def create(self, request, *args, **kwargs):
-        # Copy data safely
+        # Create a mutable copy of request.data
         data = request.data.copy()
 
-        # Convert frontend field names to backend field names
+        print("Original data: ", data)
+
+        # Convert frontend field names to backend field names and handle type conversion
         field_mapping = {
             'landType': 'land_type',
             'askingPrice': 'asking_price',
@@ -33,28 +36,58 @@ class PropertySubmissionCreateView(generics.CreateAPIView):
             'accessType': 'access_type',
             'environmentalFactors': 'environmental_factors',
             'nearestAttraction': 'nearest_attraction',
+            'place_id': 'place_id',
+            'latitude': 'latitude',
+            'longitude': 'longitude',
         }
+
+        # Fields that need specific type conversion
+        decimal_conversion_fields = ['latitude', 'longitude']
+        string_conversion_fields = ['place_id'] # Add place_id here for explicit handling
+
+        processed_data = {} # Use a new dictionary to store processed data
 
         for frontend_field, backend_field in field_mapping.items():
             if frontend_field in data:
-                # Flatten single-value lists
-                value = data.getlist(frontend_field)
-                data[backend_field] = value[0] if value else None
-                del data[frontend_field]
+                value = data.get(frontend_field) # Use .get() for safety
 
-        # Flatten all other single-value fields like acreage, zoning, etc.
-        for key in data:
-            value_list = data.getlist(key)
-            if isinstance(value_list, list) and len(value_list) == 1:
-                data[key] = value_list[0]
+                if value is not None: # Only process if value exists
+                    if backend_field in decimal_conversion_fields:
+                        try:
+                            processed_data[backend_field] = Decimal(str(value)) # Convert to string first for Decimal
+                        except (ValueError, TypeError):
+                            processed_data[backend_field] = None # Or handle as validation error
+                    elif backend_field in string_conversion_fields:
+                        processed_data[backend_field] = str(value) # Ensure it's a string
+                    else:
+                        # For other mapped fields, take the first value if it's a list (from QueryDict)
+                        if isinstance(value, list) and len(value) == 1:
+                            processed_data[backend_field] = value[0]
+                        else:
+                            processed_data[backend_field] = value
+                else:
+                    processed_data[backend_field] = None # Or appropriate default/null value
+
+        # Copy over fields that were not explicitly mapped but should be included
+        # This handles fields like 'address', 'acreage', 'zoning', 'topography', 'description', etc.
+        # Ensure we don't overwrite already processed fields.
+        for key, value in data.items():
+            if key not in field_mapping and key not in processed_data: # Avoid re-processing mapped fields
+                if isinstance(value, list) and len(value) == 1:
+                    processed_data[key] = value[0]
+                else:
+                    processed_data[key] = value
 
         # Handle file uploads correctly
         uploaded_files = request.FILES.getlist('files')
         if uploaded_files:
-            data.setlist('uploaded_files', uploaded_files)
+            processed_data['uploaded_files'] = uploaded_files
+
+
+        print("Processed data for serializer: ", processed_data)
 
         # Serialize and validate
-        serializer = self.get_serializer(data=data)
+        serializer = self.get_serializer(data=processed_data) # Pass the processed_data
         serializer.is_valid(raise_exception=True)
 
         # Save with current user
@@ -63,7 +96,7 @@ class PropertySubmissionCreateView(generics.CreateAPIView):
         return Response({
             'message': 'Property submission created successfully',
             'data': PropertySubmissionSerializer(
-                property_submission, 
+                property_submission,
                 context={'request': request}
             ).data
         }, status=status.HTTP_201_CREATED)

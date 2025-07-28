@@ -60,7 +60,6 @@ CORS_ALLOWED_ORIGINS = [
     "http://18.220.10.140",
     "http://18.191.83.115",
     "http://3.144.148.57"
-
 ]
 
 CSRF_TRUSTED_ORIGINS = [

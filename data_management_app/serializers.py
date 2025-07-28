@@ -27,13 +27,17 @@ class PropertySubmissionSerializer(serializers.ModelSerializer):
     uploaded_files = serializers.ListField(
         child=serializers.FileField(), write_only=True, required=False
     )
-    
+
     # Display related object details
     land_type_detail = serializers.SerializerMethodField()
     utilities_detail = serializers.SerializerMethodField()
     access_type_detail = serializers.SerializerMethodField()
     user_detail = serializers.SerializerMethodField()
-    
+
+    latitude = serializers.DecimalField(max_digits=15, decimal_places=10, required=False, allow_null=True)
+    longitude = serializers.DecimalField(max_digits=15, decimal_places=10, required=False, allow_null=True)
+    place_id = serializers.CharField(max_length=255, required=False, allow_null=True, allow_blank=True) # Explicitly define place_id
+
     class Meta:
         model = PropertySubmission
         fields = [
@@ -42,59 +46,69 @@ class PropertySubmissionSerializer(serializers.ModelSerializer):
             'topography', 'environmental_factors', 'nearest_attraction',
             'description', 'status', 'created_at', 'updated_at',
             'files', 'uploaded_files', 'land_type_detail', 'utilities_detail',
-            'access_type_detail', 'user_detail', 'total_files_count'
+            'access_type_detail', 'user_detail', 'total_files_count','longitude','place_id','latitude'
         ]
         read_only_fields = [
-            'id', 'user', 'status', 'created_at', 'updated_at', 
+            'id', 'user', 'status', 'created_at', 'updated_at',
             'total_files_count'
         ]
-    
+
     def get_land_type_detail(self, obj):
-        return {
-            'id': obj.land_type.id,
-            'value': obj.land_type.value,
-            'display_name': obj.land_type.display_name
-        }
-    
+        if obj.land_type:
+            return {
+                'id': obj.land_type.id,
+                'value': obj.land_type.value,
+                'display_name': obj.land_type.display_name
+            }
+        return None
+
     def get_utilities_detail(self, obj):
-        return {
-            'id': obj.utilities.id,
-            'value': obj.utilities.value,
-            'display_name': obj.utilities.display_name
-        }
-    
+        if obj.utilities:
+            return {
+                'id': obj.utilities.id,
+                'value': obj.utilities.value,
+                'display_name': obj.utilities.display_name
+            }
+        return None
+
     def get_access_type_detail(self, obj):
-        return {
-            'id': obj.access_type.id,
-            'value': obj.access_type.value,
-            'display_name': obj.access_type.display_name
-        }
-    
+        if obj.access_type:
+            return {
+                'id': obj.access_type.id,
+                'value': obj.access_type.value,
+                'display_name': obj.access_type.display_name
+            }
+        return None
+
     def get_user_detail(self, obj):
-        return {
-            'id': obj.user.id,
-            'username': obj.user.username,
-            'first_name': obj.user.first_name,
-            'last_name': obj.user.last_name,
-            'email': obj.user.email
-        }
-    
+        if obj.user:
+            return {
+                'id': obj.user.id,
+                'username': obj.user.username,
+                'first_name': obj.user.first_name,
+                'last_name': obj.user.last_name,
+                'email': obj.user.email
+            }
+        return None
+
     def validate_acreage(self, value):
-        if value <= 0:
+        if value is not None and value <= 0:
             raise serializers.ValidationError("Acreage must be greater than 0")
         return value
-    
+
     def validate_asking_price(self, value):
-        if value <= 0:
+        if value is not None and value <= 0:
             raise serializers.ValidationError("Asking price must be greater than 0")
         return value
-    
+
     def create(self, validated_data):
         uploaded_files = validated_data.pop('uploaded_files', [])
-        
+
         # Create property submission
+        # Ensure that fields like latitude, longitude, place_id are correctly popped by the serializer
+        # and then passed to the create method.
         property_submission = PropertySubmission.objects.create(**validated_data)
-        
+
         # Handle file uploads
         for file in uploaded_files:
             PropertyFile.objects.create(
@@ -102,8 +116,9 @@ class PropertySubmissionSerializer(serializers.ModelSerializer):
                 file=file,
                 original_name=file.name
             )
-        
+
         return property_submission
+
 
 
 class PropertySubmissionUpdateSerializer(serializers.ModelSerializer):

@@ -4,13 +4,12 @@ from rest_framework.permissions import AllowAny,IsAuthenticatedOrReadOnly,IsAuth
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.models import User
 from .serializers import (
-    UserSignupSerializer, 
-    UserLoginSerializer, 
+    UserSignupSerializer,
+    UserLoginSerializer,
     AdminLoginSerializer,
     UserProfileSerializer,
     UserLogoutSerializer
 )
-
 from django.shortcuts import get_object_or_404
 from .models import LandType, Utility, AccessType
 from .serializers import LandTypeSerializer, UtilitySerializer, AccessTypeSerializer
