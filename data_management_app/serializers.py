@@ -34,8 +34,8 @@ class PropertySubmissionSerializer(serializers.ModelSerializer):
     access_type_detail = serializers.SerializerMethodField()
     user_detail = serializers.SerializerMethodField()
 
-    latitude = serializers.DecimalField(max_digits=15, decimal_places=10, required=False, allow_null=True)
-    longitude = serializers.DecimalField(max_digits=15, decimal_places=10, required=False, allow_null=True)
+    latitude = serializers.DecimalField(max_digits=20, decimal_places=16, required=False, allow_null=True)
+    longitude = serializers.DecimalField(max_digits=20, decimal_places=16, required=False, allow_null=True)
     place_id = serializers.CharField(max_length=255, required=False, allow_null=True, allow_blank=True) # Explicitly define place_id
 
     class Meta:
