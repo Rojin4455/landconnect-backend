@@ -44,7 +44,8 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework_simplejwt',
     'accounts',
-    "data_management_app",
+    'data_management_app',
+    'buyer',
 
 ]
 
@@ -155,9 +156,9 @@ DATABASES = {
         'PASSWORD': config("PASSWORD"),
         'HOST': config("HOST"),
         'PORT': '5432',
-        'OPTIONS': {
-            'sslmode': 'require',  # <== THIS IS IMPORTANT for RDS
-        }
+        # 'OPTIONS': {
+        #     'sslmode': 'require',  # <== THIS IS IMPORTANT for RDS
+        # }
     }
 }
 
