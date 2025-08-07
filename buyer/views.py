@@ -13,6 +13,16 @@ class BuyerProfileCreateView(generics.CreateAPIView):
     queryset = BuyerProfile.objects.all()
     serializer_class = BuyerProfileSerializer
     permission_classes = [IsAuthenticated]
+    
+class BuyerProfileDetailView(generics.RetrieveUpdateAPIView):
+    queryset = BuyerProfile.objects.all()
+    serializer_class = BuyerProfileSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def get_object(self):
+        return generics.get_object_or_404(BuyerProfile, id=self.kwargs['buyer_id'])
+
 
 class BuyBoxFilterUpsertView(generics.CreateAPIView):
     serializer_class = BuyBoxFilterSerializer
