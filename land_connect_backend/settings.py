@@ -26,7 +26,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
 ALLOWED_HOSTS = ['app.jvdealhub.com', "localhost","127.0.0.1", "18.220.10.140","18.191.83.115","3.144.148.57"]
 
@@ -156,9 +156,9 @@ DATABASES = {
         'PASSWORD': config("PASSWORD"),
         'HOST': config("HOST"),
         'PORT': '5432',
-        # 'OPTIONS': {
-        #     'sslmode': 'require',  # <== THIS IS IMPORTANT for RDS
-        # }
+        'OPTIONS': {
+            'sslmode': 'require',  # <== THIS IS IMPORTANT for RDS
+        }
     }
 }
 
