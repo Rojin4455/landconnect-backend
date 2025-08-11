@@ -42,6 +42,10 @@ class PropertySubmission(BaseModel):
     longitude = models.DecimalField(max_digits=20, decimal_places=16, null=True, blank=True)
     place_id = models.CharField(max_length=255, null=True, blank=True)  # optional
     
+    # Additional characteristics
+    property_characteristics = models.JSONField(default=list, blank=True)
+    location_characteristics = models.JSONField(default=list, blank=True)
+    
     # Status tracking
     STATUS_CHOICES = [
         ('draft', 'Draft'),

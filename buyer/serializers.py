@@ -11,3 +11,4 @@ class BuyBoxFilterSerializer(serializers.ModelSerializer):
         model = BuyBoxFilter
         fields = '__all__'
         read_only_fields = ['buyer']
+        
