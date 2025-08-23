@@ -287,10 +287,16 @@ def calculate_exit_strategy_match_score(buyer_strategies, property_strategy):
     if isinstance(buyer_strategies, str):
         buyer_strategies = [buyer_strategies]
 
-    normalized_buyer = [str(s).strip().lower().replace(" ", "_") for s in buyer_strategies]
-    normalized_property = str(property_strategy).strip().lower().replace(" ", "_")
+    normalized_buyer = [str(s).strip().lower() for s in buyer_strategies]
+    normalized_property = str(property_strategy).strip().lower()
 
-    return 1.0 if normalized_property in normalized_buyer else 0.0
+    # Allow substring matching (e.g., "flip" matches "buy & flip")
+    for strategy in normalized_buyer:
+        if normalized_property in strategy or strategy in normalized_property:
+            return 1.0
+
+    return 0.0
+
 
 
 
