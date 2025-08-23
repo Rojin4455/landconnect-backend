@@ -41,12 +41,19 @@ class PropertySubmissionSerializer(serializers.ModelSerializer):
     class Meta:
         model = PropertySubmission
         fields = [
-            'id', 'address', 'land_type', 'acreage', 'zoning', 'asking_price',
-            'estimated_aev', 'development_costs', 'utilities', 'access_type',
+            'id', 'llc_name', 'first_name', 'last_name', 'phone_number', 'email',
+            'under_contract', 'agreed_price', 'parcel_id',
+            'address', 'land_type', 'acreage', 'zoning',
+            'lot_size', 'lot_size_unit',
+            'exit_strategy', 'estimated_aev',
+            'development_costs', 'utilities', 'access_type',
             'topography', 'environmental_factors', 'nearest_attraction',
-            'description', 'status', 'created_at', 'updated_at',
-            'files', 'uploaded_files', 'land_type_detail', 'utilities_detail',
-            'access_type_detail', 'user_detail', 'total_files_count','longitude','place_id','latitude'
+            'description', 'extra_notes',
+            'status', 'created_at', 'updated_at',
+            'files', 'uploaded_files',
+            'land_type_detail', 'utilities_detail',
+            'access_type_detail', 'user_detail',
+            'total_files_count', 'longitude', 'place_id', 'latitude'
         ]
         read_only_fields = [
             'id', 'user', 'status', 'created_at', 'updated_at',
@@ -96,10 +103,29 @@ class PropertySubmissionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Acreage must be greater than 0")
         return value
 
-    def validate_asking_price(self, value):
+    def validate_agreed_price(self, value):
         if value is not None and value <= 0:
-            raise serializers.ValidationError("Asking price must be greater than 0")
+            raise serializers.ValidationError("Agreed price must be greater than 0")
         return value
+    
+    def validate_phone_number(self, value):
+        import re
+        pattern = r'^\(\d{3}\)\s\d{3}-\d{4}$'
+        if not re.match(pattern, value):
+            raise serializers.ValidationError("Phone number must be in format (XXX) XXX-XXXX")
+        return value
+
+    def validate(self, attrs):
+        address = attrs.get('address', getattr(self.instance, 'address', None))
+        parcel_id = attrs.get('parcel_id', getattr(self.instance, 'parcel_id', None))
+    
+        if not address and not parcel_id:
+            raise serializers.ValidationError(
+                "Either Sellers Property FULL Address or Parcel ID is required."
+            )
+        return attrs
+
+
 
     def create(self, validated_data):
         uploaded_files = validated_data.pop('uploaded_files', [])
@@ -126,10 +152,14 @@ class PropertySubmissionUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = PropertySubmission
         fields = [
-            'address', 'land_type', 'acreage', 'zoning', 'asking_price',
-            'estimated_aev', 'development_costs', 'utilities', 'access_type',
+            'llc_name', 'first_name', 'last_name', 'phone_number', 'email',
+            'under_contract', 'agreed_price', 'parcel_id',
+            'address', 'land_type', 'acreage', 'zoning',
+            'lot_size', 'lot_size_unit',
+            'exit_strategy', 'estimated_aev',
+            'development_costs', 'utilities', 'access_type',
             'topography', 'environmental_factors', 'nearest_attraction',
-            'description'
+            'description', 'extra_notes'
         ]
 
 
@@ -143,8 +173,10 @@ class PropertySubmissionListSerializer(serializers.ModelSerializer):
     class Meta:
         model = PropertySubmission
         fields = [
-            'id', 'address', 'acreage', 'asking_price', 'status',
-            'land_type_name', 'utilities_name', 'access_type_name',
+            'id', 'llc_name', 'first_name', 'last_name',
+            'address', 'parcel_id', 'lot_size', 'lot_size_unit',
+            'agreed_price', 'status', 'land_type_name',
+            'utilities_name', 'access_type_name',
             'created_at', 'total_files_count'
         ]
 

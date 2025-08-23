@@ -11,6 +11,7 @@ from .serializers import (
 )
 from django.contrib.auth.models import User
 from decimal import Decimal
+from buyer.utils import match_property_to_buyers
 
 
 
@@ -29,8 +30,19 @@ class PropertySubmissionCreateView(generics.CreateAPIView):
 
         # Convert frontend field names to backend field names and handle type conversion
         field_mapping = {
+            'llcName': 'llc_name',
+            'firstName': 'first_name',
+            'lastName': 'last_name',
+            'phoneNumber': 'phone_number',
+            'email': 'email',
+            'underContract': 'under_contract',
+            'agreedPrice': 'agreed_price',
+            'lotSize': 'lot_size',
+            'lotSizeUnit': 'lot_size_unit',
+            'exitStrategy': 'exit_strategy',
+            'extraNotes': 'extra_notes',
+            # existing ones you had
             'landType': 'land_type',
-            'askingPrice': 'asking_price',
             'estimatedAEV': 'estimated_aev',
             'developmentCosts': 'development_costs',
             'accessType': 'access_type',
@@ -173,7 +185,6 @@ class PropertySubmissionUpdateView(generics.UpdateAPIView):
         
         field_mapping = {
             'landType': 'land_type',
-            'askingPrice': 'asking_price',
             'estimatedAEV': 'estimated_aev',
             'developmentCosts': 'development_costs',
             'accessType': 'access_type',
@@ -270,7 +281,7 @@ class PropertyFileDeleteView(generics.DestroyAPIView):
 # Admin views for managing property submissions
 class AdminPropertySubmissionListView(generics.ListAPIView):
     """Admin view to list all property submissions"""
-    queryset = PropertySubmission.objects.all()
+    queryset = PropertySubmission.objects.all().order_by('created_at')
     serializer_class = PropertySubmissionListSerializer
     permission_classes = [IsAuthenticated]
     
@@ -334,3 +345,180 @@ class ConversationMessageCreateView(generics.CreateAPIView):
             property_submission=property_submission,
             is_admin=is_admin_message
         )
+        
+class PropertyMatchingBuyersView(generics.RetrieveAPIView):
+    """
+    Get all matching buyers for a specific property with weighted scoring.
+    This endpoint is for admin use to view buyer matches in the deals details page.
+    """
+    permission_classes = [IsAuthenticated]  
+    
+    def get(self, request, property_id):
+        """
+        GET /api/properties/{property_id}/matching-buyers/
+        
+        Returns:
+        {
+            "property_details": {
+                "id": 1,
+                "address": "123 Main St, Tampa, FL 33602",
+                "agreed_price": 50000,
+                "lot_size": 2.5,
+                "lot_size_unit": "acres",
+                "land_type": "Residential Vacant",
+                "exit_strategy": "infill"
+            },
+            "matching_results": {
+                "summary": {
+                    "total_buyers_evaluated": 25,
+                    "total_matches": 15,
+                    "good_fit_count": 8,
+                    "marginal_fit_count": 3,
+                    "poor_fit_count": 4
+                },
+                "good_fit_buyers": [...],
+                "marginal_fit_buyers": [...],
+                "poor_fit_buyers": [...],
+                "all_matches": [...]
+            }
+        }
+        """
+        try:
+            # Get the property instance
+            property_instance = get_object_or_404(PropertySubmission, id=property_id)
+            
+            # Use your existing matching function
+            matching_results = match_property_to_buyers(property_instance)
+            
+            # Prepare property details for response
+            property_details = {
+                "id": property_instance.id,
+                "address": property_instance.address,
+                "agreed_price": float(property_instance.agreed_price) if property_instance.agreed_price else None,
+                "lot_size": float(property_instance.lot_size) if property_instance.lot_size else None,
+                "lot_size_unit": property_instance.lot_size_unit,
+                "land_type": property_instance.land_type.display_name if property_instance.land_type else None,
+                "exit_strategy": property_instance.get_exit_strategy_display() if property_instance.exit_strategy else None,
+                "exit_strategy_value": property_instance.exit_strategy,
+                "created_at": property_instance.created_at,
+                "status": property_instance.get_status_display(),
+                "acreage": float(property_instance.acreage) if property_instance.acreage else None,
+            }
+            
+            return Response({
+                "success": True,
+                "property_details": property_details,
+                "matching_results": matching_results
+            }, status=status.HTTP_200_OK)
+            
+        except PropertySubmission.DoesNotExist:
+            return Response({
+                "success": False,
+                "error": "Property not found",
+                "message": f"No property found with ID {property_id}"
+            }, status=status.HTTP_404_NOT_FOUND)
+            
+        except Exception as e:
+            return Response({
+                "success": False,
+                "error": "Internal server error",
+                "message": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class PropertyMatchingBuyerDetailView(generics.RetrieveAPIView):
+    """
+    Get detailed matching information for a specific buyer-property pair.
+    Useful for debugging or detailed analysis of why a specific match score was calculated.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, property_id, buyer_id):
+        """
+        GET /api/properties/{property_id}/matching-buyers/{buyer_id}/
+        
+        Returns detailed breakdown of match calculation for a specific buyer.
+        """
+        try:
+            from buyer.models import BuyBoxFilter  # Adjust import path as needed
+            from buyer.utils import match_property_to_single_buyer
+            
+            # Get the property and buyer instances
+            property_instance = get_object_or_404(PropertySubmission, id=property_id)
+            buyer_filter = get_object_or_404(BuyBoxFilter, buyer__id=buyer_id)
+            
+            # Calculate match for this specific buyer
+            match_result = match_property_to_single_buyer(property_instance, buyer_filter)
+            
+            if not match_result:
+                return Response({
+                    "success": False,
+                    "error": "No match found",
+                    "message": "This buyer doesn't match this property or buyer is inactive/blacklisted"
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Prepare detailed response
+            response_data = {
+                "success": True,
+                "property_details": {
+                    "id": property_instance.id,
+                    "address": property_instance.address,
+                    "agreed_price": float(property_instance.agreed_price) if property_instance.agreed_price else None,
+                    "lot_size": float(property_instance.lot_size) if property_instance.lot_size else None,
+                    "lot_size_unit": property_instance.lot_size_unit,
+                    "land_type": property_instance.land_type.display_name if property_instance.land_type else None,
+                    "exit_strategy": property_instance.get_exit_strategy_display(),
+                },
+                "buyer_details": {
+                    "id": buyer_filter.buyer.id,
+                    "name": buyer_filter.buyer.name,
+                    "email": buyer_filter.buyer.email,
+                    "asset_type": buyer_filter.get_asset_type_display(),
+                    "is_active": buyer_filter.is_active_buyer,
+                    "is_blacklisted": buyer_filter.is_blacklisted,
+                },
+                "match_analysis": match_result,
+                "criteria_comparison": {
+                    "location": {
+                        "property": property_instance.address,
+                        "buyer_wants": buyer_filter.address,
+                    },
+                    "land_type": {
+                        "property": property_instance.land_type.display_name if property_instance.land_type else None,
+                        "buyer_wants": buyer_filter.land_property_types,  # ✅ Fixed: Use land_property_types JSONField
+                    },
+                    "exit_strategy": {
+                        "property": property_instance.exit_strategy,
+                        "buyer_wants": buyer_filter.exit_strategy,  # ✅ Fixed: Use exit_strategy instead of land_strategies
+                    },
+                    "lot_size": {
+                        "property": f"{property_instance.lot_size} {property_instance.lot_size_unit}",
+                        "buyer_wants": f"{buyer_filter.lot_size_min or 0}-{buyer_filter.lot_size_max or '∞'} acres",
+                    },
+                    "price": {
+                        "property": float(property_instance.agreed_price) if property_instance.agreed_price else None,
+                        "buyer_wants": f"${buyer_filter.price_min or 0:,}-${buyer_filter.price_max or float('inf'):,}",
+                    }
+                }
+            }
+            
+            return Response(response_data, status=status.HTTP_200_OK)
+            
+        except PropertySubmission.DoesNotExist:
+            return Response({
+                "success": False,
+                "error": "Property not found"
+            }, status=status.HTTP_404_NOT_FOUND)
+            
+        except BuyBoxFilter.DoesNotExist:
+            return Response({
+                "success": False,
+                "error": "Buyer not found"
+            }, status=status.HTTP_404_NOT_FOUND)
+            
+        except Exception as e:
+            return Response({
+                "success": False,
+                "error": "Internal server error",
+                "message": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

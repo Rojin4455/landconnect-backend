@@ -29,10 +29,7 @@ class BuyBoxFilter(models.Model):
     is_blacklisted = models.BooleanField(default=False)
 
     # Location Preferences
-    preferred_cities = models.JSONField(default=list, blank=True)
-    preferred_counties = models.JSONField(default=list, blank=True)
-    preferred_states = models.JSONField(default=list, blank=True)
-    preferred_zip_codes = models.JSONField(default=list, blank=True)
+    address = models.CharField(max_length=500)
 
     # Investment Strategies
     HOUSE_STRATEGY_CHOICES = [
@@ -95,7 +92,7 @@ class BuyBoxFilter(models.Model):
     year_built_max = models.IntegerField(null=True, blank=True)
 
     # Land-specific preferences
-    land_type = models.ForeignKey(LandType, on_delete=models.SET_NULL, null=True, blank=True)
+    # land_type = models.ForeignKey(LandType, on_delete=models.SET_NULL, null=True, blank=True)
     access_type = models.ForeignKey(AccessType, on_delete=models.SET_NULL, null=True, blank=True)
     preferred_utility = models.ForeignKey(Utility, on_delete=models.SET_NULL, null=True, blank=True)
     zoning = models.JSONField(default=list, blank=True, help_text="List of acceptable zoning types")
@@ -160,6 +157,19 @@ class BuyBoxFilter(models.Model):
         ('power_at_street', 'Power at Street'),
         ('perk_tested', 'Perk Tested'),
     ]
+    
+    property_characteristics = models.JSONField(default=list, blank=True)
+    
+    EXIT_STRATEGY_CHOICES = [
+        ('infill', 'Infill Lot Development'),
+        ('flip', 'Buy & Flip'),
+        ('subdivide', 'Subdivide & Sell'),
+        ('seller_financing', 'Seller Financing'),
+        ('rezoning', 'Entitlement/Rezoning'),
+        ('mobile_home', 'Mobile Home Lot'),
+    ]
+    
+    exit_strategy = models.JSONField(default=list, blank=True)
     
     property_characteristics = models.JSONField(default=list, blank=True)
 

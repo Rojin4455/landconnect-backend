@@ -12,14 +12,13 @@ from datetime import datetime, timedelta
 from django.shortcuts import get_object_or_404
 
 
-
 class BuyerProfileCreateView(generics.CreateAPIView):
     queryset = BuyerProfile.objects.all()
     serializer_class = BuyerProfileSerializer
     permission_classes = [IsAuthenticated]
     
 class BuyerProfileListView(generics.ListAPIView):
-    queryset = BuyerProfile.objects.all()
+    queryset = BuyerProfile.objects.all().order_by('-created_at')
     serializer_class = BuyerProfileSerializer
     permission_classes = [IsAuthenticated]
     
@@ -88,7 +87,7 @@ class BuyBoxFilterUpsertView(generics.RetrieveUpdateAPIView):
     def get_matching_results(self, buybox_filter):
         """Get comprehensive matching results for this buyer"""
         try:
-            # Get all active properties
+            # Get all active properties - only submitted status
             active_properties = PropertySubmission.objects.select_related(
                 "land_type", "utilities", "access_type"
             ).filter(status='submitted')
@@ -100,13 +99,21 @@ class BuyBoxFilterUpsertView(generics.RetrieveUpdateAPIView):
                 match_result = match_property_to_single_buyer(property_instance, buybox_filter)
                 
                 if match_result:
+                    # Convert lot_size to acres if needed for display
+                    display_lot_size = property_instance.lot_size
+                    if property_instance.lot_size_unit == 'sqft':
+                        display_lot_size = float(property_instance.lot_size) / 43560
+                    
                     matches.append({
                         "property_id": property_instance.id,
                         "property_address": property_instance.address,
                         "property_details": {
                             "land_type": property_instance.land_type.display_name if property_instance.land_type else None,
-                            "acreage": float(property_instance.acreage),
-                            "asking_price": float(property_instance.asking_price),
+                            "lot_size": float(display_lot_size),
+                            "lot_size_unit": "acres",  # Standardize to acres for display
+                            "agreed_price": float(property_instance.agreed_price),
+                            "exit_strategy": property_instance.exit_strategy,
+                            "exit_strategy_display": property_instance.get_exit_strategy_display(),
                             "zoning": property_instance.zoning,
                             "access_type": property_instance.access_type.display_name if property_instance.access_type else None,
                             "utilities": property_instance.utilities.display_name if property_instance.utilities else None,
@@ -118,45 +125,39 @@ class BuyBoxFilterUpsertView(generics.RetrieveUpdateAPIView):
                         },
                         "match_score": match_result["match_score"],
                         "likelihood": match_result["likelihood"],
-                        "factors_evaluated": match_result["factors_evaluated"],
-                        "factors_matched": match_result["factors_matched"],
+                        "component_scores": match_result["component_scores"],
+                        "weighted_contribution": match_result["weighted_contribution"],
                         "match_details": match_result["match_details"]
                     })
             
             # Sort by match score (highest first)
             matches.sort(key=lambda x: x["match_score"], reverse=True)
             
-            # Summary statistics
-            total_matches = len(matches)
-            high_likelihood = len([m for m in matches if m["likelihood"] == "High"])
-            medium_likelihood = len([m for m in matches if m["likelihood"] == "Medium"])
-            low_likelihood = len([m for m in matches if m["likelihood"] == "Low"])
+            # Categorize matches using the correct categories from utils
+            good_fit = len([m for m in matches if m["likelihood"] == "Good Fit"])
+            marginal_fit = len([m for m in matches if m["likelihood"] == "Marginal Fit"])
+            poor_fit = len([m for m in matches if m["likelihood"] == "Poor Fit"])
             
             return {
                 "buyer_id": buybox_filter.buyer.id,
                 "buyer_name": buybox_filter.buyer.name,
                 "total_properties_available": active_properties.count(),
-                "total_matches": total_matches,
+                "total_matches": len(matches),
                 "matches": matches[:20],  # Limit to top 20 matches for performance
                 "match_summary": {
-                    "high_likelihood": high_likelihood,
-                    "medium_likelihood": medium_likelihood,
-                    "low_likelihood": low_likelihood,
+                    "good_fit": good_fit,
+                    "marginal_fit": marginal_fit, 
+                    "poor_fit": poor_fit,
                 },
                 "matching_criteria_active": {
                     "asset_type": buybox_filter.asset_type,
                     "is_active_buyer": buybox_filter.is_active_buyer,
                     "is_blacklisted": buybox_filter.is_blacklisted,
-                    "has_location_preferences": bool(
-                        buybox_filter.preferred_cities or 
-                        buybox_filter.preferred_counties or 
-                        buybox_filter.preferred_states or
-                        buybox_filter.preferred_zip_codes
-                    ),
+                    "has_location_preferences": bool(buybox_filter.address),
                     "has_price_range": bool(buybox_filter.price_min or buybox_filter.price_max),
                     "has_lot_size_range": bool(buybox_filter.lot_size_min or buybox_filter.lot_size_max),
                     "has_land_preferences": bool(buybox_filter.land_type or buybox_filter.access_type),
-                    "has_strict_requirements": bool(buybox_filter.strict_requirements),
+                    "has_exit_strategies": bool(buybox_filter.land_strategies),
                 }
             }
             
@@ -167,9 +168,9 @@ class BuyBoxFilterUpsertView(generics.RetrieveUpdateAPIView):
                 "total_matches": 0,
                 "matches": [],
                 "match_summary": {
-                    "high_likelihood": 0,
-                    "medium_likelihood": 0,
-                    "low_likelihood": 0,
+                    "good_fit": 0,
+                    "marginal_fit": 0,
+                    "poor_fit": 0,
                 }
             }
 
@@ -186,30 +187,39 @@ class MatchPropertyToBuyersView(APIView):
         except PropertySubmission.DoesNotExist:
             return Response({"detail": "Property not found."}, status=404)
         
-        matches = match_property_to_buyers(property_instance)
+        # Use the comprehensive matching function from utils
+        match_results = match_property_to_buyers(property_instance)
         
-        # Return comprehensive admin data
+        # Convert lot_size to acres if needed for display
+        display_lot_size = property_instance.lot_size
+        if property_instance.lot_size_unit == 'sqft':
+            display_lot_size = float(property_instance.lot_size) / 43560
+        
+        # Return comprehensive admin data with the correct structure from utils
         response_data = {
             "property_id": property_instance.id,
             "property_address": property_instance.address,
             "property_details": {
                 "land_type": property_instance.land_type.display_name if property_instance.land_type else None,
-                "acreage": float(property_instance.acreage),
-                "asking_price": float(property_instance.asking_price),
+                "lot_size": float(display_lot_size),
+                "lot_size_unit": "acres",  # Standardize to acres
+                "agreed_price": float(property_instance.agreed_price),
+                "exit_strategy": property_instance.exit_strategy,
+                "exit_strategy_display": property_instance.get_exit_strategy_display(),
                 "zoning": property_instance.zoning,
                 "access_type": property_instance.access_type.display_name if property_instance.access_type else None,
                 "utilities": property_instance.utilities.display_name if property_instance.utilities else None,
+                "topography": property_instance.topography,
+                "environmental_factors": property_instance.environmental_factors,
+                "nearest_attraction": property_instance.nearest_attraction,
+                "property_characteristics": property_instance.property_characteristics,
+                "location_characteristics": property_instance.location_characteristics,
             },
-            "total_matches": len(matches),
-            "matches": matches,
-            "match_summary": {
-                "high_likelihood": len([m for m in matches if m["likelihood"] == "High"]),
-                "medium_likelihood": len([m for m in matches if m["likelihood"] == "Medium"]), 
-                "low_likelihood": len([m for m in matches if m["likelihood"] == "Low"]),
-            }
+            "matching_results": match_results
         }
         
         return Response(response_data, status=200)
+
 
 class BuyerMatchingStatsView(APIView):
     """
@@ -237,14 +247,10 @@ class BuyerMatchingStatsView(APIView):
             },
             "buybox_criteria": {
                 "asset_type": buybox_filter.asset_type,
+                "asset_type_display": buybox_filter.get_asset_type_display(),
                 "is_active": buybox_filter.is_active_buyer,
                 "is_blacklisted": buybox_filter.is_blacklisted,
-                "location_preferences": {
-                    "cities": buybox_filter.preferred_cities,
-                    "counties": buybox_filter.preferred_counties,
-                    "states": buybox_filter.preferred_states,
-                    "zip_codes": buybox_filter.preferred_zip_codes,
-                },
+                "address": buybox_filter.address,
                 "investment_strategies": {
                     "house_strategies": buybox_filter.house_strategies,
                     "land_strategies": buybox_filter.land_strategies,
@@ -254,28 +260,41 @@ class BuyerMatchingStatsView(APIView):
                     "land_property_types": buybox_filter.land_property_types,
                 },
                 "price_range": {
-                    "min": buybox_filter.price_min,
-                    "max": buybox_filter.price_max,
+                    "min": float(buybox_filter.price_min) if buybox_filter.price_min else None,
+                    "max": float(buybox_filter.price_max) if buybox_filter.price_max else None,
                 },
                 "lot_size_acres": {
-                    "min": buybox_filter.lot_size_min,
-                    "max": buybox_filter.lot_size_max,
+                    "min": float(buybox_filter.lot_size_min) if buybox_filter.lot_size_min else None,
+                    "max": float(buybox_filter.lot_size_max) if buybox_filter.lot_size_max else None,
                 },
-                "bedrooms_min": buybox_filter.bedroom_min,
-                "bathrooms_min": buybox_filter.bathroom_min,
-                "living_area_sqft": {
-                    "min": buybox_filter.sqft_min,
-                    "max": buybox_filter.sqft_max,
+                "land_preferences": {
+                    "land_property_types": buybox_filter.land_property_types,  # JSONField list
+                    "access_type": buybox_filter.access_type.display_name if buybox_filter.access_type else None,
+                    "preferred_utility": buybox_filter.preferred_utility.name if buybox_filter.preferred_utility else None,
+                    "zoning": buybox_filter.zoning,
                 },
-                "year_built": {
-                    "min": buybox_filter.year_built_min,
-                    "max": buybox_filter.year_built_max,
+                "house_preferences": {
+                    "bedrooms_min": buybox_filter.bedroom_min,
+                    "bathrooms_min": float(buybox_filter.bathroom_min) if buybox_filter.bathroom_min else None,
+                    "living_area_sqft": {
+                        "min": buybox_filter.sqft_min,
+                        "max": buybox_filter.sqft_max,
+                    },
+                    "year_built": {
+                        "min": buybox_filter.year_built_min,
+                        "max": buybox_filter.year_built_max,
+                    },
                 },
-                "restricted_rehabs": buybox_filter.restricted_rehabs,
-                "specialty_rehab_avoidance": buybox_filter.specialty_rehab_avoidance,
-                "strict_requirements": buybox_filter.strict_requirements,
-                "location_characteristics": buybox_filter.location_characteristics,
-                "property_characteristics": buybox_filter.property_characteristics,
+                "restrictions": {
+                    "restricted_rehabs": buybox_filter.restricted_rehabs,
+                    "specialty_rehab_avoidance": buybox_filter.specialty_rehab_avoidance,
+                    "strict_requirements": buybox_filter.strict_requirements,
+                },
+                "characteristics": {
+                    "location_characteristics": buybox_filter.location_characteristics,
+                    "property_characteristics": buybox_filter.property_characteristics,
+                },
+                "exit_strategies": buybox_filter.exit_strategy,  # JSONField for exit strategies
                 "notes": buybox_filter.notes,
             },
 
@@ -290,11 +309,16 @@ class BuyerMatchingStatsView(APIView):
         """Calculate buyer matching statistics & return matching property details"""
         thirty_days_ago = datetime.now() - timedelta(days=30)
 
-        recent_properties = PropertySubmission.objects.filter(
+        recent_properties = PropertySubmission.objects.select_related(
+            "land_type", "utilities", "access_type"
+        ).filter(
             created_at__gte=thirty_days_ago,
             status='submitted'
         )
-        all_time_properties = PropertySubmission.objects.filter(status='submitted')
+        
+        all_time_properties = PropertySubmission.objects.select_related(
+            "land_type", "utilities", "access_type"
+        ).filter(status='submitted')
 
         recent_matches = []
         all_time_matches = []
@@ -302,29 +326,61 @@ class BuyerMatchingStatsView(APIView):
         for prop in recent_properties:
             match_result = match_property_to_single_buyer(prop, buybox_filter)
             if match_result:
+                # Convert lot_size to acres for display
+                display_lot_size = prop.lot_size
+                if prop.lot_size_unit == 'sqft':
+                    display_lot_size = float(prop.lot_size) / 43560
+                    
                 recent_matches.append({
                     "property_id": prop.id,
-                    "display_name": f"{prop.address} — {prop.land_type.display_name}",
+                    "display_name": f"{prop.address} — {prop.land_type.display_name if prop.land_type else 'Unknown'}",
                     "address": prop.address,
-                    "land_type": prop.land_type.display_name,
-                    "acreage": prop.acreage,
-                    "asking_price": prop.asking_price,
+                    "land_type": prop.land_type.display_name if prop.land_type else None,
+                    "lot_size": float(display_lot_size),
+                    "lot_size_unit": "acres",
+                    "agreed_price": float(prop.agreed_price),
+                    "exit_strategy": prop.exit_strategy,
+                    "exit_strategy_display": prop.get_exit_strategy_display(),
                     "match_score": match_result["match_score"],
                     "likelihood": match_result["likelihood"],
+                    "created_at": prop.created_at.isoformat(),
                 })
+        
         for prop in all_time_properties:
             match_result = match_property_to_single_buyer(prop, buybox_filter)
             if match_result:
+                # Convert lot_size to acres for display
+                display_lot_size = prop.lot_size
+                if prop.lot_size_unit == 'sqft':
+                    display_lot_size = float(prop.lot_size) / 43560
+                    
                 all_time_matches.append({
                     "property_id": prop.id,
-                    "display_name": f"{prop.address} — {prop.land_type.display_name}",
+                    "display_name": f"{prop.address} — {prop.land_type.display_name if prop.land_type else 'Unknown'}",
                     "address": prop.address,
-                    "land_type": prop.land_type.display_name,
-                    "acreage": prop.acreage,
-                    "asking_price": prop.asking_price,
+                    "land_type": prop.land_type.display_name if prop.land_type else None,
+                    "lot_size": float(display_lot_size),
+                    "lot_size_unit": "acres",
+                    "agreed_price": float(prop.agreed_price),
+                    "exit_strategy": prop.exit_strategy,
+                    "exit_strategy_display": prop.get_exit_strategy_display(),
                     "match_score": match_result["match_score"],
                     "likelihood": match_result["likelihood"],
+                    "created_at": prop.created_at.isoformat(),
                 })
+
+        # Sort matches by score (highest first)
+        recent_matches.sort(key=lambda x: x["match_score"], reverse=True)
+        all_time_matches.sort(key=lambda x: x["match_score"], reverse=True)
+
+        # Updated to use the correct likelihood categories from documentation
+        good_fit_recent = [m for m in recent_matches if m["match_score"] > 45]
+        marginal_fit_recent = [m for m in recent_matches if 40 <= m["match_score"] <= 45]
+        poor_fit_recent = [m for m in recent_matches if m["match_score"] < 40]
+        
+        good_fit_all = [m for m in all_time_matches if m["match_score"] > 45]
+        marginal_fit_all = [m for m in all_time_matches if 40 <= m["match_score"] <= 45]
+        poor_fit_all = [m for m in all_time_matches if m["match_score"] < 40]
 
         stats = {
             "buyer_id": buybox_filter.buyer.id,
@@ -339,38 +395,139 @@ class BuyerMatchingStatsView(APIView):
                 "total_matches_last_30_days": len(recent_matches),
                 "match_rate_percentage": round((len(recent_matches) / recent_properties.count() * 100) if recent_properties.count() > 0 else 0, 2),
                 "avg_match_score": round(sum(m['match_score'] for m in recent_matches) / len(recent_matches), 2) if recent_matches else 0,
+                "good_fit_count": len(good_fit_recent),
+                "marginal_fit_count": len(marginal_fit_recent), 
+                "poor_fit_count": len(poor_fit_recent),
             },
             "all_time_performance": {
                 "total_properties": all_time_properties.count(),
                 "total_matches": len(all_time_matches),
                 "match_rate_percentage": round((len(all_time_matches) / all_time_properties.count() * 100) if all_time_properties.count() > 0 else 0, 2),
                 "avg_match_score": round(sum(m['match_score'] for m in all_time_matches) / len(all_time_matches), 2) if all_time_matches else 0,
+                "good_fit_count": len(good_fit_all),
+                "marginal_fit_count": len(marginal_fit_all),
+                "poor_fit_count": len(poor_fit_all),
             },
             "likelihood_breakdown": {
-                "high_likelihood_count": len([m for m in all_time_matches if m["likelihood"] == "High"]),
-                "medium_likelihood_count": len([m for m in all_time_matches if m["likelihood"] == "Medium"]),
-                "low_likelihood_count": len([m for m in all_time_matches if m["likelihood"] == "Low"]),
+                "good_fit_count": len(good_fit_all),
+                "marginal_fit_count": len(marginal_fit_all),
+                "poor_fit_count": len(poor_fit_all),
             }
         }
 
-        return stats, recent_matches, all_time_matches
+        return stats, recent_matches[:50], all_time_matches[:100]  # Limit results for performance
 
 
 class PublicBuyBoxCriteriaListView(generics.ListAPIView):
     """
     Public API endpoint that returns only buy box criteria without buyer details.
     This is for displaying buyer criteria in the user-facing JV section.
+    Enhanced with proper field mapping and choice display names.
     """
-    queryset = BuyBoxFilter.objects.filter(
-        is_active_buyer=True,  # Only show active buyers
-        is_blacklisted=False   # Exclude blacklisted buyers
-    ).select_related('buyer')
-    
     serializer_class = BuyBoxFilterSerializer
     permission_classes = []  # No authentication required for public view
     
+    def get_queryset(self):
+        return BuyBoxFilter.objects.filter(
+            is_active_buyer=True,  # Only show active buyers
+            is_blacklisted=False,   # Exclude blacklisted buyers
+            asset_type__in=['land', 'both']  # Only show buyers who buy land
+        ).select_related('buyer', 'access_type', 'preferred_utility')
+    
+    def get_choice_display_name(self, choices_dict, value):
+        """Helper method to get display name for choice fields"""
+        return choices_dict.get(value, value) if value else None
+    
+    def get_multiple_choice_display_names(self, choices_dict, values_list):
+        """Helper method to get display names for multiple choice fields (JSONField lists)"""
+        if not values_list:
+            return []
+        
+        display_names = []
+        for value in values_list:
+            display_name = choices_dict.get(value, value)
+            display_names.append(display_name)
+        return display_names
+    
+    def get_multiple_choice_with_values(self, choices_dict, values_list):
+        """Helper method that returns both value and display for advanced frontends"""
+        if not values_list:
+            return []
+        
+        result = []
+        for value in values_list:
+            display_name = choices_dict.get(value, value)
+            result.append({
+                "value": value,
+                "display": display_name
+            })
+        return result
+    
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
+        
+        # Choice mappings from your model
+        LAND_STRATEGY_CHOICES_DICT = {
+            'infill_development': 'Infill Lot Development',
+            'buy_flip': 'Buy & Flip',
+            'buy_hold': 'Buy & Hold',
+            'subdivide_sell': 'Subdivide & Sell',
+            'seller_financing': 'Seller Financing',
+            'rv_lot': 'RV Lot / Tiny Home Lot / Mobile Home Lot',
+            'entitlement': 'Entitlement / Rezoning',
+        }
+        
+        LAND_PROPERTY_TYPES_DICT = {
+            'residential_vacant': 'Residential Vacant',
+            'agricultural': 'Agricultural',
+            'commercial': 'Commercial',
+            'recreational': 'Recreational',
+            'timberland': 'Timberland / Hunting',
+            'waterfront': 'Waterfront',
+            'subdividable': 'Subdividable',
+        }
+        
+        EXIT_STRATEGY_CHOICES_DICT = {
+            'infill': 'Infill Lot Development',
+            'flip': 'Buy & Flip',
+            'subdivide': 'Subdivide & Sell',
+            'seller_financing': 'Seller Financing',
+            'rezoning': 'Entitlement/Rezoning',
+            'mobile_home': 'Mobile Home Lot',
+        }
+        
+        STRICT_REQUIREMENTS_DICT = {
+            'legal_access_required': 'Legal Access Required',
+            'utilities_at_road': 'Utilities at Road',
+            'no_flood_zone': 'No Flood Zone',
+            'clear_title': 'Clear Title',
+            'no_hoa': 'No HOA',
+            'paved_road_access': 'Paved Road Access',
+            'mobile_home_allowed': 'Mobile Home Allowed',
+        }
+        
+        LOCATION_CHARACTERISTICS_DICT = {
+            'flood_zone': 'Flood Zone',
+            'near_main_road': 'Near Main Road',
+            'hoa_community': 'HOA Community',
+            '55_plus_community': '55+ Community',
+            'near_commercial': 'Near Commercial',
+            'waterfront': 'Waterfront',
+            'near_railroad': 'Near Railroad',
+        }
+        
+        PROPERTY_CHARACTERISTICS_DICT = {
+            'pool': 'Pool',
+            'garage': 'Garage',
+            'solar_panels': 'Solar Panels',
+            'wood_frame': 'Wood Frame',
+            'driveway': 'Driveway',
+            'city_water': 'City Water',
+            'well_water': 'Well Water',
+            'septic_tank': 'Septic Tank',
+            'power_at_street': 'Power at Street',
+            'perk_tested': 'Perk Tested',
+        }
         
         # Transform the data to show only criteria without buyer details
         public_criteria = []
@@ -379,81 +536,123 @@ class PublicBuyBoxCriteriaListView(generics.ListAPIView):
             criteria_data = {
                 "id": buybox.id,  # Keep ID for potential future reference
                 "asset_type": buybox.get_asset_type_display(),
-                "asset_type_value": buybox.asset_type,
                 
-                # Location Preferences
-                "location_preferences": {
-                    "cities": buybox.preferred_cities,
-                    "counties": buybox.preferred_counties,
-                    "states": buybox.preferred_states,
-                    "zip_codes": buybox.preferred_zip_codes,
-                },
+                # Location Preference
+                "location_preferences": buybox.address or "No specific location preference",
                 
-                # Investment Strategies
-                "investment_strategies": {
-                    "house_strategies": buybox.house_strategies,
-                    "land_strategies": buybox.land_strategies,
-                },
+                # Investment Strategies (properly mapped from land_strategies field)
+                "investment_strategies": self.get_multiple_choice_display_names(
+                    LAND_STRATEGY_CHOICES_DICT, 
+                    buybox.land_strategies or []
+                ),
                 
-                # Property Types
-                "property_types": {
-                    "house_property_types": buybox.house_property_types,
-                    "land_property_types": buybox.land_property_types,
-                },
+                # Property Types (properly mapped from land_property_types field)
+                "property_types": self.get_multiple_choice_display_names(
+                    LAND_PROPERTY_TYPES_DICT,
+                    buybox.land_property_types or []
+                ),
+                
+                # Exit Strategies (properly mapped from exit_strategy field)
+                "exit_strategies": self.get_multiple_choice_display_names(
+                    EXIT_STRATEGY_CHOICES_DICT,
+                    buybox.exit_strategy or []
+                ),
                 
                 # Price Range
                 "price_range": {
                     "min": float(buybox.price_min) if buybox.price_min else None,
                     "max": float(buybox.price_max) if buybox.price_max else None,
+                    "formatted": self.format_price_range(buybox.price_min, buybox.price_max)
                 },
                 
-                # Lot Size (for land)
+                # Lot Size (for land) - in acres
                 "lot_size_range": {
                     "min": float(buybox.lot_size_min) if buybox.lot_size_min else None,
                     "max": float(buybox.lot_size_max) if buybox.lot_size_max else None,
+                    "unit": "acres",
+                    "formatted": self.format_lot_size_range(buybox.lot_size_min, buybox.lot_size_max)
                 },
                 
-                # House-specific preferences
-                "house_preferences": {
-                    "bedroom_min": buybox.bedroom_min,
-                    "bathroom_min": float(buybox.bathroom_min) if buybox.bathroom_min else None,
-                    "sqft_min": buybox.sqft_min,
-                    "sqft_max": buybox.sqft_max,
-                    "year_built_min": buybox.year_built_min,
-                    "year_built_max": buybox.year_built_max,
-                },
-                
-                # Land-specific preferences
+                # Land-specific preferences (corrected field references)
                 "land_preferences": {
-                    "land_type": buybox.land_type.display_name if buybox.land_type else None,
                     "access_type": buybox.access_type.display_name if buybox.access_type else None,
                     "preferred_utility": buybox.preferred_utility.name if buybox.preferred_utility else None,
-                    "zoning": buybox.zoning,
+                    "zoning": buybox.zoning if buybox.zoning else [],
                 },
                 
-                # Rehab Restrictions
-                "rehab_restrictions": {
-                    "restricted_rehabs": buybox.restricted_rehabs,
-                    "specialty_rehab_avoidance": buybox.specialty_rehab_avoidance,
-                },
-                
-                # Requirements and Characteristics
+                # Requirements and Characteristics with proper display names
                 "requirements": {
-                    "strict_requirements": buybox.strict_requirements,
-                    "location_characteristics": buybox.location_characteristics,
-                    "property_characteristics": buybox.property_characteristics,
+                    "strict_requirements": self.get_multiple_choice_display_names(
+                        STRICT_REQUIREMENTS_DICT,
+                        buybox.strict_requirements or []
+                    ),
+                    "location_characteristics": self.get_multiple_choice_display_names(
+                        LOCATION_CHARACTERISTICS_DICT,
+                        buybox.location_characteristics or []
+                    ),
+                    "property_characteristics": self.get_multiple_choice_display_names(
+                        PROPERTY_CHARACTERISTICS_DICT,
+                        buybox.property_characteristics or []
+                    ),
+                },
+                
+                # Summary for easy display
+                "summary": {
+                    "asset_types": buybox.get_asset_type_display(),
+                    "strategies_count": len(buybox.land_strategies or []) + len(buybox.exit_strategy or []),
+                    "has_location_preference": bool(buybox.address),
+                    "has_price_range": bool(buybox.price_min or buybox.price_max),
+                    "has_lot_size_preference": bool(buybox.lot_size_min or buybox.lot_size_max),
+                    "total_requirements": (
+                        len(buybox.strict_requirements or []) + 
+                        len(buybox.location_characteristics or []) + 
+                        len(buybox.property_characteristics or [])
+                    )
                 },
                 
                 # Metadata (without buyer info)
-                "criteria_updated": buybox.updated_at.isoformat(),
+                "criteria_last_updated": buybox.updated_at.isoformat(),
+                "criteria_created": buybox.created_at.isoformat(),
             }
             
             public_criteria.append(criteria_data)
         
+        # Sort by most recently updated first
+        public_criteria.sort(key=lambda x: x["criteria_last_updated"], reverse=True)
+        
         response_data = {
             "total_active_buyers": len(public_criteria),
             "buy_box_criteria": public_criteria,
-            "message": "Active buyer criteria for JV deal matching"
+            "summary_stats": {
+                "buyers_wanting_land_only": len([c for c in public_criteria if c["asset_type"] == "Land"]),
+                "buyers_wanting_both": len([c for c in public_criteria if c["asset_type"] == "Both"]),
+                "buyers_with_location_preference": len([c for c in public_criteria if c["summary"]["has_location_preference"]]),
+                "buyers_with_price_range": len([c for c in public_criteria if c["summary"]["has_price_range"]]),
+                "avg_strategies_per_buyer": round(sum(c["summary"]["strategies_count"] for c in public_criteria) / len(public_criteria), 1) if public_criteria else 0,
+            },
+            "message": "Active buyer criteria for land deal matching"
         }
         
         return Response(response_data, status=status.HTTP_200_OK)
+    
+    def format_price_range(self, min_price, max_price):
+        """Format price range for display"""
+        if not min_price and not max_price:
+            return "No price limit specified"
+        elif min_price and not max_price:
+            return f"${int(min_price):,}+"
+        elif not min_price and max_price:
+            return f"Up to ${int(max_price):,}"
+        else:
+            return f"${int(min_price):,} - ${int(max_price):,}"
+    
+    def format_lot_size_range(self, min_size, max_size):
+        """Format lot size range for display"""
+        if not min_size and not max_size:
+            return "No size preference specified"
+        elif min_size and not max_size:
+            return f"{float(min_size):g}+ acres"
+        elif not min_size and max_size:
+            return f"Up to {float(max_size):g} acres"
+        else:
+            return f"{float(min_size):g} - {float(max_size):g} acres"

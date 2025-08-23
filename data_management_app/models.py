@@ -29,7 +29,7 @@ class PropertySubmission(BaseModel):
     land_type = models.ForeignKey(LandType, on_delete=models.CASCADE)
     acreage = models.DecimalField(max_digits=10, decimal_places=2)
     zoning = models.CharField(max_length=100)
-    asking_price = models.DecimalField(max_digits=12, decimal_places=2)
+    agreed_price = models.DecimalField(max_digits=12, decimal_places=2)
     estimated_aev = models.DecimalField(max_digits=12, decimal_places=2, help_text="Estimated Assessed Evaluated Value")
     development_costs = models.DecimalField(max_digits=12, decimal_places=2)
     utilities = models.ForeignKey(Utility, on_delete=models.CASCADE)
@@ -45,6 +45,33 @@ class PropertySubmission(BaseModel):
     # Additional characteristics
     property_characteristics = models.JSONField(default=list, blank=True)
     location_characteristics = models.JSONField(default=list, blank=True)
+    
+    llc_name = models.CharField(max_length=255)
+    first_name = models.CharField(max_length=100)
+    last_name = models.CharField(max_length=100)
+    phone_number = models.CharField(max_length=20)
+    email = models.EmailField()
+
+    UNDER_CONTRACT_CHOICES = [('yes', 'Yes'), ('no', 'No')]
+    under_contract = models.CharField(max_length=3, choices=UNDER_CONTRACT_CHOICES)
+    parcel_id = models.CharField(max_length=255, blank=True, null=True)
+
+    lot_size = models.DecimalField(max_digits=12, decimal_places=2)
+    LOT_SIZE_UNITS = [('acres', 'Acres'), ('sqft', 'Square Feet')]
+    lot_size_unit = models.CharField(max_length=10, choices=LOT_SIZE_UNITS)
+
+    EXIT_STRATEGY_CHOICES = [
+        ('infill', 'Infill Lot Development'),
+        ('flip', 'Buy & Flip'),
+        ('subdivide', 'Subdivide & Sell'),
+        ('seller_financing', 'Seller Financing'),
+        ('rezoning', 'Entitlement/Rezoning'),
+        ('mobile_home', 'Mobile Home Lot'),
+    ]
+    exit_strategy = models.CharField(max_length=30, choices=EXIT_STRATEGY_CHOICES)
+
+    extra_notes = models.TextField(blank=True)
+
     
     # Status tracking
     STATUS_CHOICES = [
