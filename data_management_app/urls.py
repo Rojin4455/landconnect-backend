@@ -24,8 +24,9 @@ urlpatterns = [
 
 
     path('conversations/<int:property_submission_id>/', views.ConversationMessageListView.as_view(), name='conversation-list'),
-    # POST /api/conversations/<property_submission_id>/send/
     path('conversations/<int:property_submission_id>/send/', views.ConversationMessageCreateView.as_view(), name='conversation-send'),
+    path('conversations/<int:property_submission_id>/read/', views.ConversationMarkReadView.as_view(), name='conversation-mark-read'),
+    path('conversations/inbox/', views.ConversationInboxView.as_view(), name='conversation-inbox'),
     
     path('properties/<int:property_id>/matching-buyers/', 
          views.PropertyMatchingBuyersView.as_view(), 

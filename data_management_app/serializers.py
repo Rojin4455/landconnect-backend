@@ -47,7 +47,6 @@ class PropertySubmissionSerializer(serializers.ModelSerializer):
             'lot_size', 'lot_size_unit',
             'exit_strategy', 'estimated_aev',
             'development_costs', 'utilities', 'access_type',
-            'topography', 'environmental_factors', 'nearest_attraction',
             'description', 'extra_notes',
             'status', 'created_at', 'updated_at',
             'files', 'uploaded_files',
@@ -56,7 +55,7 @@ class PropertySubmissionSerializer(serializers.ModelSerializer):
             'total_files_count', 'longitude', 'place_id', 'latitude'
         ]
         read_only_fields = [
-            'id', 'user', 'status', 'created_at', 'updated_at',
+            'id', 'user', 'created_at', 'updated_at',
             'total_files_count'
         ]
 
@@ -158,7 +157,6 @@ class PropertySubmissionUpdateSerializer(serializers.ModelSerializer):
             'lot_size', 'lot_size_unit',
             'exit_strategy', 'estimated_aev',
             'development_costs', 'utilities', 'access_type',
-            'topography', 'environmental_factors', 'nearest_attraction',
             'description', 'extra_notes'
         ]
 
@@ -188,5 +186,5 @@ class ConversationMessageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ConversationMessage
-        fields = ['id', 'sender', 'sender_username', 'property_submission', 'property_submission_id', 'message', 'timestamp', 'is_admin']
+        fields = ['id', 'sender', 'sender_username', 'property_submission', 'property_submission_id', 'message', 'timestamp', 'is_admin', 'is_read']
         read_only_fields = ['sender', 'timestamp', 'is_admin', 'property_submission'] # sender, timestamp and is_admin are set by the view

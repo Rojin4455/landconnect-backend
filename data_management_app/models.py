@@ -34,9 +34,6 @@ class PropertySubmission(BaseModel):
     development_costs = models.DecimalField(max_digits=12, decimal_places=2)
     utilities = models.ForeignKey(Utility, on_delete=models.CASCADE)
     access_type = models.ForeignKey(AccessType, on_delete=models.CASCADE)
-    topography = models.TextField()
-    environmental_factors = models.TextField()
-    nearest_attraction = models.CharField(max_length=255)
     description = models.TextField()
     latitude = models.DecimalField(max_digits=20, decimal_places=16, null=True, blank=True)
     longitude = models.DecimalField(max_digits=20, decimal_places=16, null=True, blank=True)
@@ -186,6 +183,7 @@ class ConversationMessage(models.Model):
     message = models.TextField()
     timestamp = models.DateTimeField(auto_now_add=True)
     is_admin = models.BooleanField(default=False)
+    is_read = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['timestamp']

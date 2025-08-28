@@ -12,6 +12,7 @@ from .serializers import (
 from django.contrib.auth.models import User
 from decimal import Decimal
 from buyer.utils import match_property_to_buyers
+from django.db.models import Max, Count, Q
 
 
 
@@ -46,8 +47,6 @@ class PropertySubmissionCreateView(generics.CreateAPIView):
             'estimatedAEV': 'estimated_aev',
             'developmentCosts': 'development_costs',
             'accessType': 'access_type',
-            'environmentalFactors': 'environmental_factors',
-            'nearestAttraction': 'nearest_attraction',
             'place_id': 'place_id',
             'latitude': 'latitude',
             'longitude': 'longitude',
@@ -188,8 +187,6 @@ class PropertySubmissionUpdateView(generics.UpdateAPIView):
             'estimatedAEV': 'estimated_aev',
             'developmentCosts': 'development_costs',
             'accessType': 'access_type',
-            'environmentalFactors': 'environmental_factors',
-            'nearestAttraction': 'nearest_attraction',
         }
         
         for frontend_field, backend_field in field_mapping.items():
@@ -345,6 +342,67 @@ class ConversationMessageCreateView(generics.CreateAPIView):
             property_submission=property_submission,
             is_admin=is_admin_message
         )
+        
+
+class ConversationInboxView(generics.ListAPIView):
+    """
+    Returns a list of conversations (one per property submission)
+    with last message + unread count.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request, *args, **kwargs):
+        user = request.user
+        qs = PropertySubmission.objects.all()
+
+        if not user.is_staff:  # normal users see only their own
+            qs = qs.filter(user=user)
+
+        data = []
+        for prop in qs:
+            last_message = prop.conversation_messages.order_by('-timestamp').first()
+            unread_count = prop.conversation_messages.filter(
+                is_read=False
+            ).exclude(sender=user).count()
+
+            if last_message:
+                data.append({
+                    "property_submission_id": prop.id,
+                    "property_title": getattr(prop, "address", f"Property {prop.id}"),
+                    "partner_name": prop.user.username,
+                    "last_message": {
+                        "id": last_message.id,
+                        "sender": {
+                            "id": last_message.sender.id,
+                            "name": last_message.sender.username
+                        },
+                        "content": last_message.message,
+                        "timestamp": last_message.timestamp,
+                    },
+                    "unread_count": unread_count,
+                })
+
+        return Response(data)
+
+
+class ConversationMarkReadView(generics.UpdateAPIView):
+    """
+    Marks all messages in a property conversation as read for the current user.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def update(self, request, *args, **kwargs):
+        property_submission_id = self.kwargs['property_submission_id']
+        property_submission = get_object_or_404(PropertySubmission, id=property_submission_id)
+
+        # Mark as read all messages NOT sent by this user
+        ConversationMessage.objects.filter(
+            property_submission=property_submission,
+            is_read=False
+        ).exclude(sender=request.user).update(is_read=True)
+
+        return Response({"status": "messages marked as read"})
+
         
 class PropertyMatchingBuyersView(generics.RetrieveAPIView):
     """
