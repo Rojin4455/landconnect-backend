@@ -565,3 +565,67 @@ def match_property_to_buyers(property_instance):
             "poor_fit_count": len(poor_fit_buyers),
         }
     }
+    
+#GHL custom field update for link to buyer
+
+import requests
+import logging
+from ghl_accounts.models import GHLAuthCredentials
+
+logger = logging.getLogger(__name__)
+
+CUSTOM_FIELD_ID = "A4ra922YgDx31mfbhEaJ"  # Your Buyer Deal URL custom field
+
+
+def get_active_access_token():
+    """
+    Fetch the most recent stored access token from DB.
+    (Later you can extend this to auto-refresh if expired).
+    """
+    creds = GHLAuthCredentials.objects.order_by("-id").first()
+    if not creds:
+        raise Exception("No GHL credentials found. Please authenticate first.")
+    return creds.access_token
+
+
+def update_buyer_deal_url(ghl_contact_id: str, deal_url: str):
+    """
+    Update the custom field (Buyer Deal URL) for a contact in GoHighLevel.
+
+    :param ghl_contact_id: The GHL contact ID for the buyer
+    :param deal_url: The URL of the deal page you want to save in GHL
+    :return: API response JSON or None
+    """
+    try:
+        access_token = get_active_access_token()
+    except Exception as e:
+        logger.error(f"Error fetching GHL access token: {e}")
+        return None
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+        "Version": "2021-07-28"
+    }
+
+    payload = {
+        "customFields": [
+            {
+                "id": CUSTOM_FIELD_ID,
+                "field_value": deal_url
+            }
+        ]
+    }
+
+    try:
+        response = requests.put(
+            f"https://services.leadconnectorhq.com/contacts/{ghl_contact_id}",
+            json=payload,
+            headers=headers
+        )
+        response.raise_for_status()
+        return response.json()
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error updating buyer deal URL in GHL: {e}")
+        return None

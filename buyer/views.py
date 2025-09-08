@@ -1,7 +1,7 @@
 from rest_framework import generics
-from rest_framework.permissions import IsAuthenticated
-from .models import BuyerProfile, BuyBoxFilter
-from .serializers import BuyerProfileSerializer, BuyBoxFilterSerializer
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from .models import BuyerProfile, BuyBoxFilter, BuyerDealLog
+from .serializers import BuyerProfileSerializer, BuyBoxFilterSerializer, BuyerDealLogSerializer, BuyerDealDetailSerializer
 from rest_framework.exceptions import NotFound
 from rest_framework.views import APIView
 from data_management_app.models import PropertySubmission
@@ -10,12 +10,50 @@ from rest_framework.response import Response
 from rest_framework import status
 from datetime import datetime, timedelta
 from django.shortcuts import get_object_or_404
+from ghl_accounts.utils import create_ghl_contact_for_buyer
+from ghl_accounts.models import GHLAuthCredentials
+import requests
+import logging
+from decouple import config
+from .utils import update_buyer_deal_url
 
 
 class BuyerProfileCreateView(generics.CreateAPIView):
     queryset = BuyerProfile.objects.all()
     serializer_class = BuyerProfileSerializer
     permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        # Save buyer locally first
+        buyer = serializer.save()
+
+        # Get latest GHL credentials
+        creds = GHLAuthCredentials.objects.last()
+        if not creds:
+            raise Exception("No GHL credentials found in DB. Please authenticate first.")
+
+        # Create GHL contact
+        ghl_contact_id = create_ghl_contact_for_buyer(
+            creds.access_token,
+            creds.location_id,
+            buyer
+        )
+
+        # Update buyer with GHL contact ID
+        if ghl_contact_id:
+            buyer.ghl_contact_id = ghl_contact_id
+            buyer.save(update_fields=["ghl_contact_id"])
+
+        # Return buyer for re-serialization
+        self._buyer = buyer
+
+    def create(self, request, *args, **kwargs):
+        # Run parent logic (this calls perform_create)
+        super().create(request, *args, **kwargs)
+
+        # Re-serialize updated buyer (with ghl_contact_id)
+        serializer = self.get_serializer(self._buyer)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
     
 class BuyerProfileListView(generics.ListAPIView):
     queryset = BuyerProfile.objects.all().order_by('-created_at')
@@ -31,6 +69,31 @@ class BuyerProfileDetailView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         return generics.get_object_or_404(BuyerProfile, id=self.kwargs['buyer_id'])
+    
+class BuyerProfileDeleteView(generics.DestroyAPIView):
+    queryset = BuyerProfile.objects.all()
+    serializer_class = BuyerProfileSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_url_kwarg = "buyer_id"
+
+    def perform_destroy(self, instance):
+        if instance.ghl_contact_id:
+            creds = GHLAuthCredentials.objects.last()
+            if creds:
+                url = f"https://services.leadconnectorhq.com/contacts/{instance.ghl_contact_id}"
+                headers = {
+                    "Authorization": f"Bearer {creds.access_token}",
+                    "Accept": "application/json",
+                    "Version": "2021-07-28"
+                }
+
+                response = requests.delete(url, headers=headers)
+
+                if response.status_code not in [200, 204]:
+                    # Optional: raise an error or just ignore
+                    pass
+
+        super().perform_destroy(instance)
     
     
 class BuyBoxFilterUpsertView(generics.RetrieveUpdateAPIView):
@@ -650,3 +713,105 @@ class PublicBuyBoxCriteriaListView(generics.ListAPIView):
             return f"Up to {float(max_size):g} acres"
         else:
             return f"{float(min_size):g} - {float(max_size):g} acres"
+        
+class BuyBoxToggleActiveView(generics.UpdateAPIView):
+    """
+    Toggle the is_active_buyer flag for a buyer's BuyBox.
+    """
+    serializer_class = BuyBoxFilterSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_url_kwarg = "buyer_id"
+
+    def get_object(self):
+        buyer_id = self.kwargs.get("buyer_id")
+        try:
+            buyer = BuyerProfile.objects.get(id=buyer_id)
+        except BuyerProfile.DoesNotExist:
+            raise NotFound("BuyerProfile not found.")
+
+        obj, _ = BuyBoxFilter.objects.get_or_create(buyer=buyer)
+        return obj
+
+    def patch(self, request, *args, **kwargs):
+        buybox = self.get_object()
+
+        # Flip the flag (toggle)
+        buybox.is_active_buyer = not buybox.is_active_buyer
+        buybox.save(update_fields=["is_active_buyer", "updated_at"])
+
+        return Response(
+            {
+                "buyer_id": buybox.buyer.id,
+                "buyer_name": buybox.buyer.name,
+                "is_active_buyer": buybox.is_active_buyer,
+                "message": "BuyBox active status updated successfully",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+logger = logging.getLogger(__name__)
+
+# Load from .env
+FRONTEND_BASE_URI = config("FRONTEND_BASE_URI")
+logger = logging.getLogger(__name__)
+
+
+class BuyerDealLogCreateView(generics.CreateAPIView):
+    queryset = BuyerDealLog.objects.all()
+    serializer_class = BuyerDealLogSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        buyer_deal_log = serializer.save()
+
+        try:
+            # Build deal URL using BASE_URI from .env
+            deal_url = f"{FRONTEND_BASE_URI}/buyer/{buyer_deal_log.buyer.id}/deals"
+
+            if buyer_deal_log.buyer and getattr(buyer_deal_log.buyer, "ghl_contact_id", None):
+                update_buyer_deal_url(
+                    ghl_contact_id=buyer_deal_log.buyer.ghl_contact_id,
+                    deal_url=deal_url
+                )
+                logger.info(f"Updated GHL contact {buyer_deal_log.buyer.ghl_contact_id} with deal URL {deal_url}")
+            else:
+                logger.warning("Buyer missing GHL contact ID, skipping GHL update.")
+
+        except Exception as e:
+            logger.error(f"Error updating GHL custom field: {e}")
+
+
+    
+class BuyerDealLogListView(generics.ListAPIView):
+    serializer_class = BuyerDealLogSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        buyer_id = self.kwargs["buyer_id"]
+        return BuyerDealLog.objects.filter(buyer_id=buyer_id)
+    
+class BuyerDealDetailView(generics.RetrieveAPIView):
+    queryset = BuyerDealLog.objects.select_related("deal", "buyer")
+    serializer_class = BuyerDealDetailSerializer
+    permission_classes = [AllowAny]
+
+
+class BuyerDealResponseView(generics.UpdateAPIView):
+    queryset = BuyerDealLog.objects.all()
+    serializer_class = BuyerDealLogSerializer
+    permission_classes = [AllowAny]
+
+    def update(self, request, *args, **kwargs):
+        deal_log = self.get_object()
+        action = request.data.get("action")
+
+        if action == "accept":
+            deal_log.status = "accepted"
+        elif action == "reject":
+            deal_log.status = "declined"
+        else:
+            return Response({"error": "Invalid action"}, status=400)
+
+        deal_log.save()
+        return Response(BuyerDealLogSerializer(deal_log).data)

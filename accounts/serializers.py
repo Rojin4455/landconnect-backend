@@ -9,10 +9,11 @@ from rest_framework_simplejwt.tokens import RefreshToken
 class UserSignupSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, validators=[validate_password])
     password_confirm = serializers.CharField(write_only=True)
+    phone = serializers.CharField(write_only=True)  # don't save in DB
 
     class Meta:
         model = User
-        fields = ('username', 'email', 'password', 'password_confirm', 'first_name', 'last_name')
+        fields = ('username', 'email', 'password', 'password_confirm', 'first_name', 'last_name', 'phone')
         extra_kwargs = {
             'email': {'required': True},
             'first_name': {'required': False},
@@ -24,14 +25,11 @@ class UserSignupSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Passwords don't match.")
         return attrs
 
-    def validate_email(self, value):
-        if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("A user with this email already exists.")
-        return value
-
     def create(self, validated_data):
         validated_data.pop('password_confirm')
+        phone = validated_data.pop('phone', None)  # remove phone before saving User
         user = User.objects.create_user(**validated_data)
+        user.phone_for_ghl = phone  # optional, temporary attribute
         return user
 
 

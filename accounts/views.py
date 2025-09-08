@@ -13,6 +13,8 @@ from .serializers import (
 from django.shortcuts import get_object_or_404
 from .models import LandType, Utility, AccessType
 from .serializers import LandTypeSerializer, UtilitySerializer, AccessTypeSerializer
+from ghl_accounts.utils import create_ghl_contact_for_user
+from ghl_accounts.models import GHLAuthCredentials
 
 
 def get_tokens_for_user(user):
@@ -34,9 +36,23 @@ class UserSignupView(generics.CreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        
+
+        # Create GHL contact
+        creds = GHLAuthCredentials.objects.last()
+        if creds:
+            ghl_contact_id = create_ghl_contact_for_user(
+                creds.access_token,
+                creds.location_id,
+                user,
+                phone=getattr(user, "phone_for_ghl", None)
+            )
+
+            print("GHL contact created for user:", ghl_contact_id)
+        else:
+            print("No GHL credentials found for user signup")
+
         tokens = get_tokens_for_user(user)
-        
+
         return Response({
             'message': 'User created successfully',
             'user': {

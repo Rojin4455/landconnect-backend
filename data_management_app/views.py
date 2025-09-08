@@ -44,8 +44,6 @@ class PropertySubmissionCreateView(generics.CreateAPIView):
             'extraNotes': 'extra_notes',
             # existing ones you had
             'landType': 'land_type',
-            'estimatedAEV': 'estimated_aev',
-            'developmentCosts': 'development_costs',
             'accessType': 'access_type',
             'place_id': 'place_id',
             'latitude': 'latitude',
@@ -184,8 +182,6 @@ class PropertySubmissionUpdateView(generics.UpdateAPIView):
         
         field_mapping = {
             'landType': 'land_type',
-            'estimatedAEV': 'estimated_aev',
-            'developmentCosts': 'development_costs',
             'accessType': 'access_type',
         }
         

@@ -30,11 +30,9 @@ class PropertySubmission(BaseModel):
     acreage = models.DecimalField(max_digits=10, decimal_places=2)
     zoning = models.CharField(max_length=100)
     agreed_price = models.DecimalField(max_digits=12, decimal_places=2)
-    estimated_aev = models.DecimalField(max_digits=12, decimal_places=2, help_text="Estimated Assessed Evaluated Value")
-    development_costs = models.DecimalField(max_digits=12, decimal_places=2)
     utilities = models.ForeignKey(Utility, on_delete=models.CASCADE)
     access_type = models.ForeignKey(AccessType, on_delete=models.CASCADE)
-    description = models.TextField()
+    description = models.TextField(blank=True)
     latitude = models.DecimalField(max_digits=20, decimal_places=16, null=True, blank=True)
     longitude = models.DecimalField(max_digits=20, decimal_places=16, null=True, blank=True)
     place_id = models.CharField(max_length=255, null=True, blank=True)  # optional

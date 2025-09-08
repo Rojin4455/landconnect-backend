@@ -1,10 +1,12 @@
 from django.db import models
 from accounts.models import LandType, AccessType, Utility
+from data_management_app.models import PropertySubmission
 
 class BuyerProfile(models.Model):
     name = models.CharField(max_length=255)
     email = models.EmailField(unique=True)
     phone = models.CharField(max_length=20, blank=True, null=True)
+    ghl_contact_id = models.CharField(max_length=255, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -182,3 +184,25 @@ class BuyBoxFilter(models.Model):
 
     def __str__(self):
         return f"BuyBox for {self.buyer.name}"
+    
+    
+class BuyerDealLog(models.Model):
+    STATUS_CHOICES = [
+        ("sent", "Sent"),
+        ("declined", "Declined"),
+        ("offer_made", "Offer Made"),
+        ("under_contract", "Under Contract"),
+        ("accepted", "Accepted"),
+    ]
+
+    buyer = models.ForeignKey(BuyerProfile, on_delete=models.CASCADE, related_name="deal_logs")
+    deal = models.ForeignKey(PropertySubmission, on_delete=models.CASCADE, related_name="buyer_logs")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="sent")
+    sent_date = models.DateTimeField(auto_now_add=True)
+    match_score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+
+    class Meta:
+        ordering = ["-sent_date"]
+
+    def __str__(self):
+        return f"{self.deal} -> {self.buyer} ({self.status})"

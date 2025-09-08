@@ -45,8 +45,7 @@ class PropertySubmissionSerializer(serializers.ModelSerializer):
             'under_contract', 'agreed_price', 'parcel_id',
             'address', 'land_type', 'acreage', 'zoning',
             'lot_size', 'lot_size_unit',
-            'exit_strategy', 'estimated_aev',
-            'development_costs', 'utilities', 'access_type',
+            'exit_strategy', 'utilities', 'access_type',
             'description', 'extra_notes',
             'status', 'created_at', 'updated_at',
             'files', 'uploaded_files',
@@ -155,8 +154,7 @@ class PropertySubmissionUpdateSerializer(serializers.ModelSerializer):
             'under_contract', 'agreed_price', 'parcel_id',
             'address', 'land_type', 'acreage', 'zoning',
             'lot_size', 'lot_size_unit',
-            'exit_strategy', 'estimated_aev',
-            'development_costs', 'utilities', 'access_type',
+            'exit_strategy', 'utilities', 'access_type',
             'description', 'extra_notes'
         ]
 
