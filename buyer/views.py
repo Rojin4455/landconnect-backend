@@ -785,7 +785,7 @@ class BuyerDealLogCreateView(generics.CreateAPIView):
     
 class BuyerDealLogListView(generics.ListAPIView):
     serializer_class = BuyerDealLogSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def get_queryset(self):
         buyer_id = self.kwargs["buyer_id"]
