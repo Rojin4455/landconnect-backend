@@ -70,13 +70,19 @@ class PropertySubmission(BaseModel):
     
     # Status tracking
     STATUS_CHOICES = [
-        ('draft', 'Draft'),
         ('submitted', 'Submitted'),
-        ('under_review', 'Under Review'),
-        ('approved', 'Approved'),
-        ('rejected', 'Rejected'),
+        ('under_review_with_buyer', 'Under review with Buyer'),
+        ('buyer_approved', 'Buyer Approved'),
+        ('buyer_rejected', 'Buyer Rejected'),
+        ('mls_pending', 'MLS Listing - Pending'),
+        ('mls_active', 'MLS Active Listing'),
+        ('sold', 'Sold Deal'),
+        ('canceled', 'Canceled Deal'),
     ]
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='submitted')
+
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='submitted')
+    
+    buyer_rejected_notes = models.TextField(blank=True, null=True)
     
     # Admin fields
     reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_properties')

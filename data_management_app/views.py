@@ -7,13 +7,14 @@ from django.db.models import Q
 from .models import PropertySubmission, PropertyFile, ConversationMessage
 from .serializers import (
     PropertySubmissionSerializer, PropertySubmissionListSerializer,
-    PropertySubmissionUpdateSerializer, PropertyFileSerializer,ConversationMessageSerializer
+    PropertySubmissionUpdateSerializer, PropertyFileSerializer,ConversationMessageSerializer, PropertyStatusUpdateSerializer
 )
 from django.contrib.auth.models import User
 from decimal import Decimal
 from buyer.utils import match_property_to_buyers
 from django.db.models import Max, Count, Q
-
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import filters
 
 
 class PropertySubmissionCreateView(generics.CreateAPIView):
@@ -130,14 +131,18 @@ class PropertySubmissionListView(generics.ListAPIView):
     def get_queryset(self):
         return PropertySubmission.objects.filter(user=self.request.user)
     
-    
+
 class AllPropertySubmissionListView(generics.ListAPIView):
-    """List property submissions for the authenticated user"""
+    """List all property submissions (admins can filter by status)"""
     serializer_class = PropertySubmissionListSerializer
     permission_classes = [IsAuthenticated]
+    queryset = PropertySubmission.objects.all()
     
-    def get_queryset(self):
-        return PropertySubmission.objects.all()
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
+    filterset_fields = ['status']   # filtering by status
+    ordering_fields = ['created_at', 'updated_at']
+    search_fields = ['address', 'parcel_id']
+
 
 class PropertySubmissionDetailView(generics.RetrieveAPIView):
     """Get detailed view of a property submission"""
@@ -160,7 +165,7 @@ class PropertyDetailView(generics.RetrieveAPIView):
 
 class PropertyStatusUpdateView(generics.UpdateAPIView):
     """Admin view to update the status of a property submission"""
-    serializer_class = PropertySubmissionSerializer
+    serializer_class = PropertyStatusUpdateSerializer
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
@@ -273,25 +278,14 @@ class PropertyFileDeleteView(generics.DestroyAPIView):
 
 # Admin views for managing property submissions
 class AdminPropertySubmissionListView(generics.ListAPIView):
-    """Admin view to list all property submissions"""
-    queryset = PropertySubmission.objects.all().order_by('created_at')
     serializer_class = PropertySubmissionListSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]  # or IsAdminUser if only admins
     
-    def get_queryset(self):
-        # Only allow staff/superuser access
-        if not (self.request.user.is_staff or self.request.user.is_superuser):
-            return PropertySubmission.objects.none()
-        
-        queryset = PropertySubmission.objects.all()
-        
-        # Filter by status if provided
-        status_filter = self.request.query_params.get('status')
-        if status_filter:
-            queryset = queryset.filter(status=status_filter)
-        
-        return queryset
-    
+    queryset = PropertySubmission.objects.all()
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
+    filterset_fields = ['status']
+    ordering_fields = ['created_at', 'updated_at']
+    search_fields = ['address', 'parcel_id', 'llc_name', 'first_name', 'last_name']
 
 
 

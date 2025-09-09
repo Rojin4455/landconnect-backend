@@ -123,7 +123,15 @@ class PropertySubmissionSerializer(serializers.ModelSerializer):
             )
         return attrs
 
+    def validate(self, attrs):
+        status = attrs.get("status", getattr(self.instance, "status", None))
+        notes = attrs.get("buyer_rejected_notes", getattr(self.instance, "buyer_rejected_notes", None))
 
+        if status == "buyer_rejected" and not notes:
+            raise serializers.ValidationError({
+                "buyer_rejected_notes": "This field is required when status is Buyer Rejected."
+            })
+        return attrs
 
     def create(self, validated_data):
         uploaded_files = validated_data.pop('uploaded_files', [])
@@ -186,3 +194,16 @@ class ConversationMessageSerializer(serializers.ModelSerializer):
         model = ConversationMessage
         fields = ['id', 'sender', 'sender_username', 'property_submission', 'property_submission_id', 'message', 'timestamp', 'is_admin', 'is_read']
         read_only_fields = ['sender', 'timestamp', 'is_admin', 'property_submission'] # sender, timestamp and is_admin are set by the view
+        
+        
+class PropertyStatusUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PropertySubmission
+        fields = ['status', 'buyer_rejected_notes']
+
+    def validate(self, attrs):
+        if attrs.get("status") == "buyer_rejected" and not attrs.get("buyer_rejected_notes"):
+            raise serializers.ValidationError(
+                {"buyer_rejected_notes": "This field is required when rejecting a deal."}
+            )
+        return attrs
