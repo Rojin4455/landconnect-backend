@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import PropertySubmission, PropertyFile, LandType, Utility, AccessType,ConversationMessage
-
+from ghl_accounts.utils import update_contact_custom_fields_for_deal, update_ghl_deal_status
 
 class PropertyFileSerializer(serializers.ModelSerializer):
     file_url = serializers.SerializerMethodField()
@@ -51,7 +51,7 @@ class PropertySubmissionSerializer(serializers.ModelSerializer):
             'files', 'uploaded_files',
             'land_type_detail', 'utilities_detail',
             'access_type_detail', 'user_detail',
-            'total_files_count', 'longitude', 'place_id', 'latitude'
+            'total_files_count', 'longitude', 'place_id', 'latitude', 'ghl_contact_id',
         ]
         read_only_fields = [
             'id', 'user', 'created_at', 'updated_at',
@@ -134,14 +134,10 @@ class PropertySubmissionSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        uploaded_files = validated_data.pop('uploaded_files', [])
-
-        # Create property submission
-        # Ensure that fields like latitude, longitude, place_id are correctly popped by the serializer
-        # and then passed to the create method.
+        uploaded_files = validated_data.pop("uploaded_files", [])
         property_submission = PropertySubmission.objects.create(**validated_data)
 
-        # Handle file uploads
+        # Save uploaded files
         for file in uploaded_files:
             PropertyFile.objects.create(
                 property=property_submission,
@@ -149,7 +145,23 @@ class PropertySubmissionSerializer(serializers.ModelSerializer):
                 original_name=file.name
             )
 
+        # 🔹 Sync only the foldered custom fields to GHL
+        contact_data = update_contact_custom_fields_for_deal(
+            email=property_submission.email or f"deal+{property_submission.id}@example.com",
+            first_name=property_submission.first_name or "Deal",
+            last_name=property_submission.last_name or "Contact",
+            lot_address=property_submission.address,
+            deal_status=property_submission.status
+        )
+
+        # 🔹 Store GHL contact ID in property_submission
+        ghl_contact_id = contact_data.get("contact", {}).get("id")
+        if ghl_contact_id:
+            property_submission.ghl_contact_id = ghl_contact_id
+            property_submission.save()
+
         return property_submission
+
 
 
 
@@ -207,3 +219,15 @@ class PropertyStatusUpdateSerializer(serializers.ModelSerializer):
                 {"buyer_rejected_notes": "This field is required when rejecting a deal."}
             )
         return attrs
+
+    def update(self, instance, validated_data):
+        # Update the property submission status
+        instance.status = validated_data.get("status", instance.status)
+        instance.buyer_rejected_notes = validated_data.get("buyer_rejected_notes", instance.buyer_rejected_notes)
+        instance.save()
+
+        # 🔹 Update GHL custom field for Deal Status
+        if instance.ghl_contact_id:  # You must store the GHL contact ID in your model
+            update_ghl_deal_status(instance.ghl_contact_id, instance.status)
+
+        return instance

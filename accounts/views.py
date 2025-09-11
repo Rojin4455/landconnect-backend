@@ -35,7 +35,9 @@ class UserSignupView(generics.CreateAPIView):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = serializer.save()
+
+        # capture user + extra signup info
+        user, phone, student_username, student_password = serializer.save()
 
         # Create GHL contact
         creds = GHLAuthCredentials.objects.last()
@@ -44,9 +46,10 @@ class UserSignupView(generics.CreateAPIView):
                 creds.access_token,
                 creds.location_id,
                 user,
-                phone=getattr(user, "phone_for_ghl", None)
+                phone=phone,
+                student_username=student_username,
+                student_password=student_password,
             )
-
             print("GHL contact created for user:", ghl_contact_id)
         else:
             print("No GHL credentials found for user signup")
@@ -64,7 +67,6 @@ class UserSignupView(generics.CreateAPIView):
             },
             'tokens': tokens
         }, status=status.HTTP_201_CREATED)
-
 
 class UserLoginView(generics.GenericAPIView):
     """User login endpoint"""

@@ -89,6 +89,9 @@ class PropertySubmission(BaseModel):
     reviewed_at = models.DateTimeField(null=True, blank=True)
     admin_notes = models.TextField(blank=True)
     
+    ghl_contact_id = models.CharField(max_length=255, blank=True, null=True)
+
+    
     class Meta:
         db_table = 'property_submissions'
         verbose_name = 'Property Submission'

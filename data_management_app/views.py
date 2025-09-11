@@ -15,6 +15,7 @@ from buyer.utils import match_property_to_buyers
 from django.db.models import Max, Count, Q
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
+from ghl_accounts.utils import update_ghl_unread_message
 
 
 class PropertySubmissionCreateView(generics.CreateAPIView):
@@ -93,14 +94,13 @@ class PropertySubmissionCreateView(generics.CreateAPIView):
         if uploaded_files:
             processed_data['uploaded_files'] = uploaded_files
 
-
         print("Processed data for serializer: ", processed_data)
 
         # Serialize and validate
-        serializer = self.get_serializer(data=processed_data) # Pass the processed_data
+        serializer = self.get_serializer(data=processed_data)
         serializer.is_valid(raise_exception=True)
 
-        # Save with current user
+        # Save with current user -> will trigger the create() method of serializer
         property_submission = serializer.save(user=request.user)
 
         return Response({
@@ -110,6 +110,7 @@ class PropertySubmissionCreateView(generics.CreateAPIView):
                 context={'request': request}
             ).data
         }, status=status.HTTP_201_CREATED)
+
 
 
 class UserPropertySubmissionListView(generics.ListAPIView):
@@ -124,12 +125,59 @@ class UserPropertySubmissionListView(generics.ListAPIView):
     
 
 class PropertySubmissionListView(generics.ListAPIView):
-    """List property submissions for the authenticated user"""
+    """List property submissions for the authenticated user along with unread message count"""
     serializer_class = PropertySubmissionListSerializer
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
         return PropertySubmission.objects.filter(user=self.request.user)
+    
+    def list(self, request, *args, **kwargs):
+        user = request.user
+        print("🚀 Entered PropertySubmissionListView.list()")
+        print("Authenticated User:", user)
+
+        queryset = self.get_queryset()
+        print("Initial queryset count:", queryset.count())
+
+        # Annotate unread counts
+        queryset = queryset.annotate(
+            unread_count=Count(
+                'conversation_messages',
+                filter=Q(conversation_messages__is_read=False) & ~Q(conversation_messages__sender=user)
+            )
+        )
+        print("Annotated queryset count:", queryset.count())
+
+        data = []
+        for prop in queryset:
+            print(f"🔍 Processing property_submission_id={prop.id}, address={prop.address}")
+            print(f"   -> Calculated unread_count={prop.unread_count}")
+
+            last_message = prop.conversation_messages.order_by('-timestamp').first()
+            if last_message:
+                print(f"   -> Last message: {last_message.message} at {last_message.timestamp}")
+            else:
+                print("   -> No messages found for this property")
+
+            # 🔹 Update GHL "Unread Message" custom field
+            if hasattr(prop, "ghl_contact_id") and prop.ghl_contact_id:
+                print(f"📡 Calling update_ghl_unread_message(contact_id={prop.ghl_contact_id}, unread_count={prop.unread_count})")
+                update_ghl_unread_message(prop.ghl_contact_id, prop.unread_count)
+            else:
+                print(f"⚠️ Property {prop.id} has no ghl_contact_id")
+
+            data.append({
+                "property_submission_id": prop.id,
+                "address": prop.address,
+                "last_message": last_message.message if last_message else None,
+                "last_message_timestamp": last_message.timestamp if last_message else None,
+                "unread_count": prop.unread_count,
+            })
+
+        print("✅ Finished processing properties, returning response")
+        return Response(data)
+
     
 
 class AllPropertySubmissionListView(generics.ListAPIView):
