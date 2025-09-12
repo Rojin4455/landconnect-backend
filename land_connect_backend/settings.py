@@ -43,7 +43,7 @@ from celery.schedules import crontab
 
 CELERY_BEAT_SCHEDULE = {
     'make-api-call-every-20-hours': {
-        'task': 'land_connect_backend.tasks.make_api_call',
+        'task': 'buyer.tasks.make_api_call',
         'schedule': crontab(hour='0,20'),  # runs at 00:00 and 20:00 every day
     },
 }
