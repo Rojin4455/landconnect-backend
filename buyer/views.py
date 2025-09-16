@@ -15,7 +15,7 @@ from ghl_accounts.models import GHLAuthCredentials
 import requests
 import logging
 from decouple import config
-from .utils import update_buyer_deal_url
+from .utils import update_buyer_deal_fields, update_buyer_deal_action
 
 
 class BuyerProfileCreateView(generics.CreateAPIView):
@@ -764,23 +764,28 @@ class BuyerDealLogCreateView(generics.CreateAPIView):
 
     def perform_create(self, serializer):
         buyer_deal_log = serializer.save()
+        print("🚀 BuyerDealLog created:", buyer_deal_log.id)
 
         try:
-            # Build deal URL using BASE_URI from .env
             deal_url = f"{FRONTEND_BASE_URI}/buyer/{buyer_deal_log.buyer.id}/deals"
+            deal_address = buyer_deal_log.deal.address if buyer_deal_log.deal else ""
+            deal_status = buyer_deal_log.status
+
+            print("📌 Deal Info:", deal_url, deal_address, deal_status)
 
             if buyer_deal_log.buyer and getattr(buyer_deal_log.buyer, "ghl_contact_id", None):
-                update_buyer_deal_url(
+                print(f"🔗 Updating GHL contact: {buyer_deal_log.buyer.ghl_contact_id}")
+                update_buyer_deal_fields(
                     ghl_contact_id=buyer_deal_log.buyer.ghl_contact_id,
-                    deal_url=deal_url
+                    deal_url=deal_url,
+                    deal_address=deal_address,
+                    deal_status=deal_status
                 )
-                logger.info(f"Updated GHL contact {buyer_deal_log.buyer.ghl_contact_id} with deal URL {deal_url}")
             else:
-                logger.warning("Buyer missing GHL contact ID, skipping GHL update.")
+                print("⚠️ Buyer missing GHL contact ID, skipping GHL update.")
 
         except Exception as e:
-            logger.error(f"Error updating GHL custom field: {e}")
-
+            print(f"❌ Error updating GHL custom fields: {e}")
 
     
 class BuyerDealLogListView(generics.ListAPIView):
@@ -805,13 +810,29 @@ class BuyerDealResponseView(generics.UpdateAPIView):
     def update(self, request, *args, **kwargs):
         deal_log = self.get_object()
         action = request.data.get("action")
+        reject_note = request.data.get("reject_note")  # optional note
 
         if action == "accept":
             deal_log.status = "accepted"
+            deal_log.reject_note = None
         elif action == "reject":
             deal_log.status = "declined"
+            deal_log.reject_note = reject_note or "Buyer declined the deal"
         else:
             return Response({"error": "Invalid action"}, status=400)
 
         deal_log.save()
+
+        # Update GHL custom fields
+        if deal_log.buyer and getattr(deal_log.buyer, "ghl_contact_id", None):
+            update_buyer_deal_action(
+                ghl_contact_id=deal_log.buyer.ghl_contact_id,
+                deal_status=deal_log.status,
+                reject_note=deal_log.reject_note
+            )
+        else:
+            print("⚠️ Buyer missing GHL contact ID, skipping GHL update.")
+
         return Response(BuyerDealLogSerializer(deal_log).data)
+
+

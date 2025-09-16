@@ -23,7 +23,7 @@ class BuyerDealLogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = BuyerDealLog
-        fields = ["id", "buyer", "buyer_name", "deal", "deal_address", "status", "sent_date", "match_score"]
+        fields = ["id", "buyer", "buyer_name", "deal", "deal_address", "status", "sent_date", "match_score", "reject_note"]
         read_only_fields = ["sent_date"]
         
 class BuyerDealDetailSerializer(serializers.ModelSerializer):

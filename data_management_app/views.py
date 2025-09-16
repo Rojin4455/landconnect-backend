@@ -134,11 +134,7 @@ class PropertySubmissionListView(generics.ListAPIView):
     
     def list(self, request, *args, **kwargs):
         user = request.user
-        print("🚀 Entered PropertySubmissionListView.list()")
-        print("Authenticated User:", user)
-
         queryset = self.get_queryset()
-        print("Initial queryset count:", queryset.count())
 
         # Annotate unread counts
         queryset = queryset.annotate(
@@ -147,25 +143,14 @@ class PropertySubmissionListView(generics.ListAPIView):
                 filter=Q(conversation_messages__is_read=False) & ~Q(conversation_messages__sender=user)
             )
         )
-        print("Annotated queryset count:", queryset.count())
 
         data = []
         for prop in queryset:
-            print(f"🔍 Processing property_submission_id={prop.id}, address={prop.address}")
-            print(f"   -> Calculated unread_count={prop.unread_count}")
-
             last_message = prop.conversation_messages.order_by('-timestamp').first()
-            if last_message:
-                print(f"   -> Last message: {last_message.message} at {last_message.timestamp}")
-            else:
-                print("   -> No messages found for this property")
 
-            # 🔹 Update GHL "Unread Message" custom field
+            # Update GHL "Unread Message" custom field
             if hasattr(prop, "ghl_contact_id") and prop.ghl_contact_id:
-                print(f"📡 Calling update_ghl_unread_message(contact_id={prop.ghl_contact_id}, unread_count={prop.unread_count})")
                 update_ghl_unread_message(prop.ghl_contact_id, prop.unread_count)
-            else:
-                print(f"⚠️ Property {prop.id} has no ghl_contact_id")
 
             data.append({
                 "property_submission_id": prop.id,
@@ -175,8 +160,8 @@ class PropertySubmissionListView(generics.ListAPIView):
                 "unread_count": prop.unread_count,
             })
 
-        print("✅ Finished processing properties, returning response")
         return Response(data)
+
 
     
 

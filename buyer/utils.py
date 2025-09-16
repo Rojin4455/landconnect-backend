@@ -574,7 +574,10 @@ from ghl_accounts.models import GHLAuthCredentials
 
 logger = logging.getLogger(__name__)
 
-CUSTOM_FIELD_ID = "A4ra922YgDx31mfbhEaJ"  # Your Buyer Deal URL custom field
+# Custom field IDs
+CUSTOM_URL_FIELD_ID = "A4ra922YgDx31mfbhEaJ"  # custom_url field
+CURRENT_DEAL_FIELD_ID = "axPHGooJ1BF2W2HOUDbV"  # Current Deal field
+CURRENT_DEAL_STATUS_FIELD_ID = "82bcjwXha3lGeYAIoPOI"  # Current Deal Status field
 
 
 def get_active_access_token():
@@ -588,18 +591,13 @@ def get_active_access_token():
     return creds.access_token
 
 
-def update_buyer_deal_url(ghl_contact_id: str, deal_url: str):
-    """
-    Update the custom field (Buyer Deal URL) for a contact in GoHighLevel.
-
-    :param ghl_contact_id: The GHL contact ID for the buyer
-    :param deal_url: The URL of the deal page you want to save in GHL
-    :return: API response JSON or None
-    """
+def update_buyer_deal_fields(ghl_contact_id: str, deal_url: str, deal_address: str, deal_status: str):
+    print("🔍 Inside update_buyer_deal_fields()")
     try:
         access_token = get_active_access_token()
+        print("✅ Got GHL access token")
     except Exception as e:
-        logger.error(f"Error fetching GHL access token: {e}")
+        print(f"❌ Error fetching GHL access token: {e}")
         return None
 
     headers = {
@@ -610,12 +608,13 @@ def update_buyer_deal_url(ghl_contact_id: str, deal_url: str):
 
     payload = {
         "customFields": [
-            {
-                "id": CUSTOM_FIELD_ID,
-                "field_value": deal_url
-            }
+            {"id": CUSTOM_URL_FIELD_ID, "field_value": deal_url},
+            {"id": CURRENT_DEAL_FIELD_ID, "field_value": deal_address},
+            {"id": CURRENT_DEAL_STATUS_FIELD_ID, "field_value": deal_status}
         ]
     }
+
+    print("📦 Payload to GHL:", payload)
 
     try:
         response = requests.put(
@@ -624,8 +623,70 @@ def update_buyer_deal_url(ghl_contact_id: str, deal_url: str):
             headers=headers
         )
         response.raise_for_status()
+        print(f"✅ Successfully updated GHL contact {ghl_contact_id}")
         return response.json()
-
     except requests.exceptions.RequestException as e:
-        logger.error(f"Error updating buyer deal URL in GHL: {e}")
+        print(f"❌ Error updating buyer deal fields in GHL: {e}")
+        if e.response is not None:
+            print("📡 Response content:", e.response.text)
+        return None
+
+CURRENT_DEAL_STATUS_FIELD_ID = "82bcjwXha3lGeYAIoPOI"   # Current Deal Status
+BUYER_REJECT_NOTE_FIELD_ID = "Ob1ibJKBmDnhAUy8hzq4"     # Buyer Rejected Notes
+
+def get_active_access_token():
+    creds = GHLAuthCredentials.objects.order_by("-id").first()
+    if not creds:
+        raise Exception("No GHL credentials found. Please authenticate first.")
+    return creds.access_token
+
+
+def update_buyer_deal_action(ghl_contact_id: str, deal_status: str, reject_note: str = None):
+    """
+    Update GHL contact fields when a buyer accepts or rejects a deal.
+    
+    :param ghl_contact_id: GHL contact ID
+    :param deal_status: "accepted" or "declined"
+    :param reject_note: Optional note if the buyer rejects
+    """
+    print("🔍 Inside update_buyer_deal_action()")
+    
+    try:
+        access_token = get_active_access_token()
+        print("✅ Got GHL access token")
+    except Exception as e:
+        print(f"❌ Error fetching GHL access token: {e}")
+        return None
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+        "Version": "2021-07-28"
+    }
+
+    # Prepare payload
+    custom_fields = [
+        {"id": CURRENT_DEAL_STATUS_FIELD_ID, "field_value": deal_status}
+    ]
+    
+    # Only send reject note if provided and status is declined
+    if deal_status == "declined" and reject_note:
+        custom_fields.append({"id": BUYER_REJECT_NOTE_FIELD_ID, "field_value": reject_note})
+
+    payload = {"customFields": custom_fields}
+    print("📦 Payload to GHL:", payload)
+
+    try:
+        response = requests.put(
+            f"https://services.leadconnectorhq.com/contacts/{ghl_contact_id}",
+            json=payload,
+            headers=headers
+        )
+        response.raise_for_status()
+        print(f"✅ Successfully updated GHL contact {ghl_contact_id} with deal action")
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error updating buyer deal action in GHL: {e}")
+        if e.response is not None:
+            print("📡 Response content:", e.response.text)
         return None

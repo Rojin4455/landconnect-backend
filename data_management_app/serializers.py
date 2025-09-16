@@ -134,8 +134,12 @@ class PropertySubmissionSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
+        print("🚀 Entered PropertySubmissionSerializer.create()")
         uploaded_files = validated_data.pop("uploaded_files", [])
+        print(f"📦 Number of uploaded files: {len(uploaded_files)}")
+
         property_submission = PropertySubmission.objects.create(**validated_data)
+        print(f"✅ Created PropertySubmission: id={property_submission.id}, address={property_submission.address}")
 
         # Save uploaded files
         for file in uploaded_files:
@@ -144,23 +148,46 @@ class PropertySubmissionSerializer(serializers.ModelSerializer):
                 file=file,
                 original_name=file.name
             )
+            print(f"📄 Uploaded file saved: {file.name}")
 
         # 🔹 Sync only the foldered custom fields to GHL
+        email = property_submission.email or f"deal+{property_submission.id}@example.com"
+        first_name = property_submission.first_name or "Deal"
+        last_name = property_submission.last_name or "Contact"
+        llc_name = property_submission.llc_name or ""
+        lot_address = property_submission.address
+        deal_status = property_submission.status
+
+        print("📡 Calling update_contact_custom_fields_for_deal with:")
+        print(f"   Email: {email}")
+        print(f"   First Name: {first_name}")
+        print(f"   Last Name: {last_name}")
+        print(f"   LLC Name: {llc_name}")
+        print(f"   Lot Address: {lot_address}")
+        print(f"   Deal Status: {deal_status}")
+
         contact_data = update_contact_custom_fields_for_deal(
-            email=property_submission.email or f"deal+{property_submission.id}@example.com",
-            first_name=property_submission.first_name or "Deal",
-            last_name=property_submission.last_name or "Contact",
-            lot_address=property_submission.address,
-            deal_status=property_submission.status
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            llc_name=llc_name,
+            lot_address=lot_address,
+            deal_status=deal_status
         )
+
+        print(f"📡 GHL Response: {contact_data}")
 
         # 🔹 Store GHL contact ID in property_submission
         ghl_contact_id = contact_data.get("contact", {}).get("id")
         if ghl_contact_id:
             property_submission.ghl_contact_id = ghl_contact_id
             property_submission.save()
+            print(f"✅ Stored GHL contact ID: {ghl_contact_id} for property_submission_id={property_submission.id}")
+        else:
+            print("⚠️ No GHL contact ID returned")
 
         return property_submission
+
 
 
 

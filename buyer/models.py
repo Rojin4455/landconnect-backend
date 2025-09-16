@@ -200,7 +200,7 @@ class BuyerDealLog(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="sent")
     sent_date = models.DateTimeField(auto_now_add=True)
     match_score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
-
+    reject_note = models.TextField(null=True, blank=True) 
     class Meta:
         ordering = ["-sent_date"]
 
