@@ -11,11 +11,12 @@ from .serializers import (
     UserLogoutSerializer
 )
 from django.shortcuts import get_object_or_404
-from .models import LandType, Utility, AccessType
+from .models import LandType, Utility, AccessType, UserProfile
 from .serializers import LandTypeSerializer, UtilitySerializer, AccessTypeSerializer
 from ghl_accounts.utils import create_ghl_contact_for_user
 from ghl_accounts.models import GHLAuthCredentials
-
+from rest_framework.exceptions import ValidationError
+from data_management_app.models import PropertySubmission
 
 def get_tokens_for_user(user):
     """Generate JWT tokens for user"""
@@ -122,12 +123,43 @@ class AdminLoginView(generics.GenericAPIView):
         }, status=status.HTTP_200_OK)
 
 
-class UserProfileView(generics.RetrieveUpdateAPIView):
-    """Get and update user profile (requires authentication)"""
+class UserProfileView(generics.RetrieveUpdateAPIView, generics.CreateAPIView):
     serializer_class = UserProfileSerializer
+    permission_classes = [IsAuthenticated]
 
     def get_object(self):
-        return self.request.user
+        """Return the user's profile if it exists."""
+        try:
+            return self.request.user.profile
+        except UserProfile.DoesNotExist:
+            return None
+
+    def get(self, request, *args, **kwargs):
+        profile = self.get_object()
+
+        if not profile:
+            # Return user details only (pre-filled data)
+            user = request.user
+            data = {
+                "id": None,
+                "username": user.username,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "email": user.email,
+                "llc_name": None,
+                "phone": None,
+            }
+            return Response(data, status=status.HTTP_200_OK)
+
+        return super().retrieve(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        if self.get_object():
+            raise ValidationError("Profile already exists. Use PUT/PATCH to update it.")
+        return super().create(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
     
 
 class NonAdminUserListView(generics.ListAPIView):
@@ -135,8 +167,47 @@ class NonAdminUserListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return User.objects.filter(is_superuser=False)
+        return UserProfile.objects.filter(user__is_superuser=False)
 
+class UserDetailWithDealsView(generics.RetrieveAPIView):
+    serializer_class = UserProfileSerializer
+    permission_classes = [IsAuthenticated]
+
+    def retrieve(self, request, *args, **kwargs):
+        pk = kwargs.get("pk")
+
+        # Check if user exists
+        try:
+            user = User.objects.get(id=pk)
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "User not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Get profile for the user (can be None)
+        profile = UserProfile.objects.filter(user=user).first()
+        profile_data = UserProfileSerializer(profile).data if profile else None
+
+        # Get all deals for this user (can be empty)
+        deals = PropertySubmission.objects.filter(user=user)
+        deals_data = [
+            {
+                "id": d.id,
+                "address": d.address,
+                "land_type": d.land_type.name if d.land_type else None,
+                "acreage": d.acreage,
+                "asking_price": getattr(d, "asking_price", None),  # if field exists
+                "status": d.status,
+                "created_at": d.created_at,
+            }
+            for d in deals
+        ]
+
+        return Response({
+            "user_profile": profile_data,
+            "deals": deals_data
+        }, status=status.HTTP_200_OK)
 
 class UserLogoutView(generics.GenericAPIView):
     """User logout endpoint - blacklists the refresh token"""

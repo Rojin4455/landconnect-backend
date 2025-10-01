@@ -49,7 +49,7 @@ def create_ghl_contact_for_user(access_token, location_id, user, phone, student_
         "name": full_name,
         "email": user.email,
         "phone": phone,
-        "tags": ["User"],
+        "tags": ["JV_Partner"],
         "customFields": [
             {
                 "id": "mTjrSQSWCFheYvanquKP",

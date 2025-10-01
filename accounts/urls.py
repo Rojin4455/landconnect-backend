@@ -12,6 +12,8 @@ urlpatterns = [
     # Token refresh
     path('token/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
     path('users/', views.NonAdminUserListView.as_view(), name='non-admin-user-list'),
+    path("users/<int:pk>/details/", views.UserDetailWithDealsView.as_view(), name="user-details-with-deals"),
+    
     # User profile
     path('profile/', views.UserProfileView.as_view(), name='user-profile'),
     path('land-types/', views.LandTypeListCreateView.as_view(), name='landtype-list-create'),

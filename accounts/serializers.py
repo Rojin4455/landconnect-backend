@@ -3,6 +3,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from rest_framework_simplejwt.tokens import RefreshToken
+from accounts.models import UserProfile
 
 
 class UserSignupSerializer(serializers.ModelSerializer):
@@ -96,10 +97,39 @@ class AdminLoginSerializer(serializers.Serializer):
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="user.username", read_only=True)
+    first_name = serializers.CharField(source="user.first_name", required=False)
+    last_name = serializers.CharField(source="user.last_name", required=False)
+    email = serializers.EmailField(source="user.email", required=False)
+
     class Meta:
-        model = User
-        fields = ('id', 'username', 'email', 'first_name', 'last_name', 'date_joined', 'is_active')
-        read_only_fields = ('id', 'username', 'date_joined')
+        model = UserProfile
+        fields = ("id", "username", "first_name", "last_name", "email", "llc_name", "phone")
+
+    def create(self, validated_data):
+        user_data = validated_data.pop("user", {})
+        user = self.context['request'].user  # use the logged-in user
+
+        # Update user fields if provided
+        for attr, value in user_data.items():
+            setattr(user, attr, value)
+        user.save()
+
+        # Create the UserProfile
+        profile = UserProfile.objects.create(user=user, **validated_data)
+        return profile
+
+    def update(self, instance, validated_data):
+        user_data = validated_data.pop("user", {})
+        user = instance.user
+
+        # Update user fields
+        for attr, value in user_data.items():
+            setattr(user, attr, value)
+        user.save()
+
+        # Update profile fields
+        return super().update(instance, validated_data)
 
 
 
