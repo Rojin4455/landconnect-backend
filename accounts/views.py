@@ -11,24 +11,32 @@ from .serializers import (
     UserLogoutSerializer
 )
 from django.shortcuts import get_object_or_404
-from .models import LandType, Utility, AccessType, UserProfile
+from .models import LandType, Utility, AccessType, UserProfile, UserGHLMapping
 from .serializers import LandTypeSerializer, UtilitySerializer, AccessTypeSerializer
-from ghl_accounts.utils import create_ghl_contact_for_user
+from ghl_accounts.utils import create_ghl_contact_for_user, update_ghl_contact_otp
 from ghl_accounts.models import GHLAuthCredentials
 from rest_framework.exceptions import ValidationError
 from data_management_app.models import PropertySubmission
+from rest_framework.views import APIView
+import random
+from datetime import timedelta
 
-def get_tokens_for_user(user):
-    """Generate JWT tokens for user"""
+
+def get_tokens_for_user(user, lifetime_hours=48):
+    """Generate JWT tokens for user with custom access token lifetime"""
     refresh = RefreshToken.for_user(user)
+
+    # Set custom lifetime for access token
+    access = refresh.access_token
+    access.set_exp(lifetime=timedelta(hours=lifetime_hours))
+
     return {
         'refresh': str(refresh),
-        'access': str(refresh.access_token),
+        'access': str(access),
     }
 
 
 class UserSignupView(generics.CreateAPIView):
-    """User registration endpoint"""
     queryset = User.objects.all()
     serializer_class = UserSignupSerializer
     permission_classes = [AllowAny]
@@ -37,11 +45,10 @@ class UserSignupView(generics.CreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        # capture user + extra signup info
-        user, phone, student_username, student_password = serializer.save()
+        user, phone, student_username, otp = serializer.save()
 
-        # Create GHL contact
         creds = GHLAuthCredentials.objects.last()
+        ghl_contact_id = None
         if creds:
             ghl_contact_id = create_ghl_contact_for_user(
                 creds.access_token,
@@ -49,53 +56,115 @@ class UserSignupView(generics.CreateAPIView):
                 user,
                 phone=phone,
                 student_username=student_username,
-                student_password=student_password,
+                student_password=otp,  # store OTP as custom field
             )
-            print("GHL contact created for user:", ghl_contact_id)
-        else:
-            print("No GHL credentials found for user signup")
+            print("GHL contact created:", ghl_contact_id)
 
-        tokens = get_tokens_for_user(user)
+            # ✅ Store mapping in DB
+            if ghl_contact_id:
+                UserGHLMapping.objects.create(user=user, ghl_contact_id=ghl_contact_id)
 
         return Response({
-            'message': 'User created successfully',
-            'user': {
-                'id': user.id,
-                'username': user.username,
-                'email': user.email,
-                'first_name': user.first_name,
-                'last_name': user.last_name,
-            },
-            'tokens': tokens
+            "message": "Signup successful. OTP has been sent to your contact details.",
+            "user_id": user.id,
+            "username": user.username
         }, status=status.HTTP_201_CREATED)
 
-class UserLoginView(generics.GenericAPIView):
-    """User login endpoint"""
-    serializer_class = UserLoginSerializer
+
+class OTPVerifyView(APIView):
+    """Step 2: Verify OTP and activate account"""
     permission_classes = [AllowAny]
 
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        user = serializer.validated_data['user']
+    def post(self, request):
+        username = request.data.get("username")
+        otp = request.data.get("otp")
+
+        if not username or not otp:
+            return Response({"error": "Username and OTP are required."}, status=400)
+
+        try:
+            user = User.objects.get(username=username)
+        except User.DoesNotExist:
+            return Response({"error": "Invalid username"}, status=400)
+
+        if not user.check_password(otp):
+            return Response({"error": "Invalid OTP"}, status=400)
+
+        # ✅ OTP matched → activate account
+        user.is_active = True
+        user.save()
+
         tokens = get_tokens_for_user(user)
-        
+
         return Response({
-            'message': 'Login successful',
-            'user': {
-                'id': user.id,
-                'username': user.username,
-                'email': user.email,
-                'first_name': user.first_name,
-                'last_name': user.last_name,
-                'is_staff': user.is_staff,
-                'is_superuser': user.is_superuser,
-            },
-            'tokens': tokens
-        }, status=status.HTTP_200_OK)
+            "message": "OTP verified successfully. Signup completed.",
+            "tokens": tokens
+        }, status=200)
+
+class UserLoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = UserLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data['user']
+
+        # Generate OTP
+        otp = str(random.randint(100000, 999999))
+        print("Login OTP:", otp)
+
+        # Update Django password temporarily
+        user.set_password(otp)
+        user.save()
+
+        # Update OTP in GHL custom field
+        creds = GHLAuthCredentials.objects.last()
+        try:
+            mapping = UserGHLMapping.objects.get(user=user)
+            contact_id = mapping.ghl_contact_id
+            update_ghl_contact_otp(
+                creds.access_token,
+                contact_id,
+                otp
+            )
+        except UserGHLMapping.DoesNotExist:
+            pass  # Optional: log missing mapping
+
+        return Response({
+            "message": "OTP generated and sent to your contact details.",
+            "user_id": user.id,
+            "username": user.username
+        }, status=200)
 
 
+class UserLoginOTPVerifyView(APIView):
+    """Step 2: Verify login OTP and issue JWT"""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get("email")
+        otp = request.data.get("otp")
+
+        if not email or not otp:
+            return Response({"error": "Email and OTP are required."}, status=400)
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response({"error": "Invalid Email"}, status=400)
+
+        if not user.check_password(otp):
+            return Response({"error": "Invalid OTP"}, status=400)
+
+        # ✅ OTP matched → issue JWT valid for 48 hours
+        tokens = get_tokens_for_user(user, lifetime_hours=48)
+
+        return Response({
+            "message": "Login successful.",
+            "tokens": tokens
+        }, status=200)
+        
+        
 class AdminLoginView(generics.GenericAPIView):
     """Admin login endpoint"""
     serializer_class = AdminLoginSerializer

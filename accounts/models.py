@@ -62,3 +62,7 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return f"{self.user.username}'s profile"
+    
+class UserGHLMapping(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    ghl_contact_id = models.CharField(max_length=255)

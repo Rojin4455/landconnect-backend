@@ -57,7 +57,7 @@ def create_ghl_contact_for_user(access_token, location_id, user, phone, student_
             },
             {
                 "id": "f5xfh7MXxAENmBYpD1BZ",
-                "value": student_password   # now guaranteed not None
+                "value": student_password   # actually the OTP
             }
         ]
 
@@ -548,3 +548,68 @@ def update_ghl_unread_message(contact_id, unread_count):
     except requests.exceptions.RequestException as e:
         # print("❌ Exception during GHL unread message update:", str(e))
         return {"error": str(e)}
+
+def update_ghl_contact_otp(access_token, contact_id, otp):
+    """Update OTP in GHL custom field (for login/signup)"""
+    url = f"https://services.leadconnectorhq.com/contacts/{contact_id}"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Version": "2021-07-28",
+        "Accept": "application/json"
+    }
+
+    payload = {
+        "customFields": [
+            {
+                "id": "f5xfh7MXxAENmBYpD1BZ",  # password/OTP field ID
+                "value": otp
+            }
+        ]
+    }
+
+    try:
+        response = requests.put(url, headers=headers, json=payload)
+        if response.status_code in [200, 201]:
+            return True
+        else:
+            print("GHL OTP update failed:", response.text)
+            return False
+    except Exception as e:
+        print("Exception while updating GHL OTP:", str(e))
+        return False
+
+
+def get_ghl_contact(access_token, contact_id):
+    """Fetch GHL contact details by contactId"""
+    url = f"https://services.leadconnectorhq.com/contacts/{contact_id}"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Version": "2021-07-28",
+        "Accept": "application/json"
+    }
+
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            return response.json().get("contact", {})
+        return None
+    except Exception as e:
+        print("Exception while fetching GHL contact:", str(e))
+        return None
+
+
+def check_contact_email_phone(access_token, contact_id, email, phone):
+    """Check if a contact's email and phone match"""
+    contact = get_ghl_contact(access_token, contact_id)
+    if not contact:
+        return False, "Contact not found"
+
+    ghl_email = contact.get("email")
+    ghl_phone = contact.get("phone")
+
+    if ghl_email != email:
+        return False, "Email does not match"
+    if ghl_phone != phone:
+        return False, "Phone does not match"
+
+    return True, "Email and phone verified"

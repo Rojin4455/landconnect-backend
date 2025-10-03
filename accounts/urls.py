@@ -5,6 +5,8 @@ from . import views
 urlpatterns = [
     # Authentication endpoints
     path('signup/', views.UserSignupView.as_view(), name='user-signup'),
+    path('signup-verify-otp/', views.OTPVerifyView.as_view(), name='signup-verify-otp'),
+    path('login-verify-otp/', views.UserLoginOTPVerifyView.as_view(), name='signup-verify-otp'),
     path('login/', views.UserLoginView.as_view(), name='user-login'),
     path('admin/login/', views.AdminLoginView.as_view(), name='admin-login'),
     path('logout/', views.UserLogoutView.as_view(), name='user-logout'),

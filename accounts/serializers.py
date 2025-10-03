@@ -3,71 +3,95 @@ from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from rest_framework_simplejwt.tokens import RefreshToken
-from accounts.models import UserProfile
-
+from accounts.models import UserProfile, UserGHLMapping
+import random
+from ghl_accounts.utils import check_contact_email_phone, get_ghl_contact
+from ghl_accounts.models import GHLAuthCredentials
 
 class UserSignupSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, validators=[validate_password])
-    password_confirm = serializers.CharField(write_only=True)
     phone = serializers.CharField(write_only=True)  
     student_username = serializers.CharField(write_only=True, required=False, allow_blank=True)
-    student_password = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = User
         fields = (
-            'username', 'email', 'password', 'password_confirm',
-            'first_name', 'last_name', 'phone',
-            'student_username', 'student_password'
+            'username', 'email', 'first_name', 'last_name', 'phone',
+            'student_username'
         )
-        extra_kwargs = {
-            'email': {'required': True},
-            'first_name': {'required': False},
-            'last_name': {'required': False},
-        }
 
     def validate(self, attrs):
-        if attrs['password'] != attrs['password_confirm']:
-            raise serializers.ValidationError("Passwords don't match.")
+        if User.objects.filter(username=attrs['username']).exists():
+            raise serializers.ValidationError({"username": "Username already exists."})
+        if User.objects.filter(email=attrs['email']).exists():
+            raise serializers.ValidationError({"email": "Email already exists."})
+        if User.objects.filter(profile__phone=attrs['phone']).exists():
+            raise serializers.ValidationError({"phone": "Phone already exists."})
         return attrs
 
     def create(self, validated_data):
-        validated_data.pop('password_confirm')
         phone = validated_data.pop('phone', None)
         student_username = validated_data.pop('student_username', None)
-        student_password = validated_data.pop('student_password', None)
 
-        user = User.objects.create_user(**validated_data)
+        # Generate OTP
+        otp = str(random.randint(100000, 999999))
+        print("OTP: ", otp)
 
-        # fallback: if no student_password provided, use the actual signup password
-        if not student_password:
-            student_password = validated_data.get("password")
+        # Create user with OTP as password (temporary)
+        user = User.objects.create_user(
+            password=otp,
+            **validated_data
+        )
 
-        return user, phone, student_username, student_password
+        return user, phone, student_username, otp
 
 
 
 class UserLoginSerializer(serializers.Serializer):
-    username = serializers.CharField()
-    password = serializers.CharField()
+    email = serializers.EmailField()
+    phone = serializers.CharField()
 
     def validate(self, attrs):
-        username = attrs.get('username')
-        password = attrs.get('password')
+        email = attrs.get('email')
+        phone = attrs.get('phone')
+        errors = {}
 
-        if username and password:
-            user = authenticate(username=username, password=password)
-            
-            if not user:
-                raise serializers.ValidationError('Invalid credentials.')
-            
-            if not user.is_active:
-                raise serializers.ValidationError('User account is disabled.')
-            
-            attrs['user'] = user
-            return attrs
-        else:
-            raise serializers.ValidationError('Must include username and password.')
+        # Check if user exists in Django
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            errors['email'] = "Email not found."
+            user = None
+
+        # Check GHL credentials
+        creds = GHLAuthCredentials.objects.last()
+        if not creds:
+            raise serializers.ValidationError({"detail": "No GHL credentials found."})
+
+        if user:
+            # ✅ Fetch ghl_contact_id from mapping
+            try:
+                mapping = UserGHLMapping.objects.get(user=user)
+                contact_id = mapping.ghl_contact_id
+            except UserGHLMapping.DoesNotExist:
+                errors['detail'] = "GHL contactId not found for this user."
+                contact_id = None
+
+            if contact_id:
+                is_valid, message = check_contact_email_phone(
+                    creds.access_token,
+                    contact_id,
+                    email,
+                    phone
+                )
+                if not is_valid:
+                    errors['phone'] = message
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        attrs['user'] = user
+        return attrs
+
 
 
 class AdminLoginSerializer(serializers.Serializer):
