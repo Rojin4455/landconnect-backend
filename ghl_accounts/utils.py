@@ -546,7 +546,7 @@ def update_ghl_unread_message(contact_id, unread_count):
         return resp.json()
 
     except requests.exceptions.RequestException as e:
-        # print("❌ Exception during GHL unread message update:", str(e))
+        print("❌ Exception during GHL unread message update:", str(e))
         return {"error": str(e)}
 
 def update_ghl_contact_otp(access_token, contact_id, otp):
@@ -598,18 +598,27 @@ def get_ghl_contact(access_token, contact_id):
         return None
 
 
-def check_contact_email_phone(access_token, contact_id, email, phone):
-    """Check if a contact's email and phone match"""
+def check_contact_phone(access_token, contact_id, phone):
+    """Check if a contact's phone match"""
     contact = get_ghl_contact(access_token, contact_id)
     if not contact:
         return False, "Contact not found"
 
-    ghl_email = contact.get("email")
     ghl_phone = contact.get("phone")
 
-    if ghl_email != email:
-        return False, "Email does not match"
     if ghl_phone != phone:
         return False, "Phone does not match"
 
-    return True, "Email and phone verified"
+    return True, "Phone verified"
+
+def normalize_phone(phone):
+    """
+    Normalize phone number to include country code +1 if missing.
+    Removes spaces or dashes.
+    """
+    if not phone:
+        return phone
+    phone = phone.replace(" ", "").replace("-", "")
+    if not phone.startswith("+"):
+        phone = "+1" + phone
+    return phone

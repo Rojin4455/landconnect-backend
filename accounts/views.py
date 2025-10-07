@@ -13,7 +13,7 @@ from .serializers import (
 from django.shortcuts import get_object_or_404
 from .models import LandType, Utility, AccessType, UserProfile, UserGHLMapping
 from .serializers import LandTypeSerializer, UtilitySerializer, AccessTypeSerializer
-from ghl_accounts.utils import create_ghl_contact_for_user, update_ghl_contact_otp
+from ghl_accounts.utils import create_ghl_contact_for_user, update_ghl_contact_otp, normalize_phone
 from ghl_accounts.models import GHLAuthCredentials
 from rest_framework.exceptions import ValidationError
 from data_management_app.models import PropertySubmission
@@ -62,7 +62,7 @@ class UserSignupView(generics.CreateAPIView):
 
             # ✅ Store mapping in DB
             if ghl_contact_id:
-                UserGHLMapping.objects.create(user=user, ghl_contact_id=ghl_contact_id)
+                UserGHLMapping.objects.create(user=user, ghl_contact_id=ghl_contact_id, phone=phone)
 
         return Response({
             "message": "Signup successful. OTP has been sent to your contact details.",
@@ -113,50 +113,45 @@ class UserLoginView(APIView):
         otp = str(random.randint(100000, 999999))
         print("Login OTP:", otp)
 
-        # Update Django password temporarily
+        # Temporarily set OTP as password
         user.set_password(otp)
         user.save()
 
         # Update OTP in GHL custom field
         creds = GHLAuthCredentials.objects.last()
-        try:
-            mapping = UserGHLMapping.objects.get(user=user)
-            contact_id = mapping.ghl_contact_id
-            update_ghl_contact_otp(
-                creds.access_token,
-                contact_id,
-                otp
-            )
-        except UserGHLMapping.DoesNotExist:
-            pass  # Optional: log missing mapping
+        mapping = UserGHLMapping.objects.get(user=user)
+        contact_id = mapping.ghl_contact_id
+        update_ghl_contact_otp(creds.access_token, contact_id, otp)
 
         return Response({
-            "message": "OTP generated and sent to your contact details.",
+            "message": "OTP generated and sent to your phone.",
             "user_id": user.id,
             "username": user.username
         }, status=200)
 
 
 class UserLoginOTPVerifyView(APIView):
-    """Step 2: Verify login OTP and issue JWT"""
     permission_classes = [AllowAny]
 
     def post(self, request):
-        email = request.data.get("email")
+        phone = normalize_phone(request.data.get("phone"))
         otp = request.data.get("otp")
 
-        if not email or not otp:
-            return Response({"error": "Email and OTP are required."}, status=400)
+        if not phone or not otp:
+            return Response({"error": "Phone and OTP are required."}, status=400)
 
+        # ✅ Find user via UserGHLMapping
         try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            return Response({"error": "Invalid Email"}, status=400)
+            mapping = UserGHLMapping.objects.get(phone=phone)
+            user = mapping.user
+        except UserGHLMapping.DoesNotExist:
+            return Response({"error": "Invalid Phone"}, status=400)
 
+        # Verify OTP
         if not user.check_password(otp):
             return Response({"error": "Invalid OTP"}, status=400)
 
-        # ✅ OTP matched → issue JWT valid for 48 hours
+        # Issue JWT valid for 48 hours
         tokens = get_tokens_for_user(user, lifetime_hours=48)
 
         return Response({

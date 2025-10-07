@@ -130,10 +130,14 @@ class PropertySubmissionListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
-        return PropertySubmission.objects.filter(user=self.request.user)
+        qs = PropertySubmission.objects.filter(user=self.request.user)
+        print(f"🔎 [DEBUG] get_queryset -> Found {qs.count()} property submissions for user {self.request.user}")
+        return qs
     
     def list(self, request, *args, **kwargs):
         user = request.user
+        print(f"\n🚀 [DEBUG] Entered PropertySubmissionListView.list() for user {user}")
+        
         queryset = self.get_queryset()
 
         # Annotate unread counts
@@ -143,14 +147,24 @@ class PropertySubmissionListView(generics.ListAPIView):
                 filter=Q(conversation_messages__is_read=False) & ~Q(conversation_messages__sender=user)
             )
         )
+        print(f"📦 [DEBUG] Annotated queryset with unread counts (total {queryset.count()} submissions)")
 
         data = []
         for prop in queryset:
+            print(f"\n➡️ [DEBUG] Processing PropertySubmission ID={prop.id}, Address={prop.address}")
+
             last_message = prop.conversation_messages.order_by('-timestamp').first()
+            if last_message:
+                print(f"   💬 Last message: \"{last_message.message}\" at {last_message.timestamp}")
+            else:
+                print("   ⚠️ No messages found for this property")
 
             # Update GHL "Unread Message" custom field
             if hasattr(prop, "ghl_contact_id") and prop.ghl_contact_id:
+                print(f"   🔄 Updating GHL unread message field for contact_id={prop.ghl_contact_id}, unread_count={prop.unread_count}")
                 update_ghl_unread_message(prop.ghl_contact_id, prop.unread_count)
+            else:
+                print("   ⚠️ No GHL contact_id available, skipping update")
 
             data.append({
                 "property_submission_id": prop.id,
@@ -160,7 +174,9 @@ class PropertySubmissionListView(generics.ListAPIView):
                 "unread_count": prop.unread_count,
             })
 
+        print("\n✅ [DEBUG] Final response data prepared")
         return Response(data)
+
 
 
     

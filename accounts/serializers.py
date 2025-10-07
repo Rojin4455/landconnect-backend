@@ -5,7 +5,7 @@ from django.contrib.auth.password_validation import validate_password
 from rest_framework_simplejwt.tokens import RefreshToken
 from accounts.models import UserProfile, UserGHLMapping
 import random
-from ghl_accounts.utils import check_contact_email_phone, get_ghl_contact
+from ghl_accounts.utils import check_contact_phone, normalize_phone
 from ghl_accounts.models import GHLAuthCredentials
 
 class UserSignupSerializer(serializers.ModelSerializer):
@@ -32,11 +32,14 @@ class UserSignupSerializer(serializers.ModelSerializer):
         phone = validated_data.pop('phone', None)
         student_username = validated_data.pop('student_username', None)
 
+        # Normalize phone
+        phone = normalize_phone(phone)
+
         # Generate OTP
         otp = str(random.randint(100000, 999999))
         print("OTP: ", otp)
 
-        # Create user with OTP as password (temporary)
+        # Create user with OTP as password
         user = User.objects.create_user(
             password=otp,
             **validated_data
@@ -46,52 +49,34 @@ class UserSignupSerializer(serializers.ModelSerializer):
 
 
 
+
 class UserLoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
     phone = serializers.CharField()
 
     def validate(self, attrs):
-        email = attrs.get('email')
         phone = attrs.get('phone')
-        errors = {}
+        phone = normalize_phone(phone)  # normalize input
 
-        # Check if user exists in Django
+        # Find user via UserGHLMapping
         try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            errors['email'] = "Email not found."
-            user = None
+            mapping = UserGHLMapping.objects.get(phone=phone)
+            user = mapping.user
+        except UserGHLMapping.DoesNotExist:
+            raise serializers.ValidationError({"phone": "Phone not found."})
 
-        # Check GHL credentials
+        # GHL credentials
         creds = GHLAuthCredentials.objects.last()
         if not creds:
             raise serializers.ValidationError({"detail": "No GHL credentials found."})
 
-        if user:
-            # ✅ Fetch ghl_contact_id from mapping
-            try:
-                mapping = UserGHLMapping.objects.get(user=user)
-                contact_id = mapping.ghl_contact_id
-            except UserGHLMapping.DoesNotExist:
-                errors['detail'] = "GHL contactId not found for this user."
-                contact_id = None
-
-            if contact_id:
-                is_valid, message = check_contact_email_phone(
-                    creds.access_token,
-                    contact_id,
-                    email,
-                    phone
-                )
-                if not is_valid:
-                    errors['phone'] = message
-
-        if errors:
-            raise serializers.ValidationError(errors)
+        # Verify phone in GHL
+        contact_id = mapping.ghl_contact_id
+        is_valid, message = check_contact_phone(creds.access_token, contact_id, phone)
+        if not is_valid:
+            raise serializers.ValidationError({"phone": message})
 
         attrs['user'] = user
         return attrs
-
 
 
 class AdminLoginSerializer(serializers.Serializer):
@@ -118,7 +103,6 @@ class AdminLoginSerializer(serializers.Serializer):
             return attrs
         else:
             raise serializers.ValidationError('Must include username and password.')
-
 
 class UserProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
@@ -154,7 +138,6 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
         # Update profile fields
         return super().update(instance, validated_data)
-
 
 
 

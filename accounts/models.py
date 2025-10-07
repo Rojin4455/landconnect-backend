@@ -66,3 +66,4 @@ class UserProfile(models.Model):
 class UserGHLMapping(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     ghl_contact_id = models.CharField(max_length=255)
+    phone = models.CharField(max_length=20, unique=True, null=True, blank=True)
